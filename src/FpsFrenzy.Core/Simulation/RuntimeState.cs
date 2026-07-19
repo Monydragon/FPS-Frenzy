@@ -13,10 +13,23 @@ public enum GamePhase
 
 public enum EnemyActionState
 {
+    Idle,
+    Locomotion,
     Navigating,
     Windup,
+    ActiveAttack,
     Charging,
     Recovering,
+    HitReaction,
+    Death,
+}
+
+public enum EnemyAttackKind
+{
+    None,
+    Melee,
+    Projectile,
+    BossVolley,
 }
 
 public enum CombatEventType
@@ -30,11 +43,23 @@ public enum CombatEventType
     EnemyKilled,
     EnemyTelegraph,
     EnemyAttack,
+    EnemyAttackStarted,
+    EnemyAttackImpact,
+    EnemySpawnTelegraph,
+    EnemySpawned,
     PlayerDamaged,
     PickupCollected,
     WaveStarted,
     BossPhaseChanged,
     SupportPulse,
+    EncounterStarted,
+    EncounterCompleted,
+    EncounterFailed,
+    UpgradeOffered,
+    UpgradeApplied,
+    SectorActivated,
+    RelayDamaged,
+    ArmoryActivated,
 }
 
 public readonly record struct CombatEvent(
@@ -44,7 +69,8 @@ public readonly record struct CombatEvent(
     EntityId SourceId,
     EntityId TargetId,
     string? CueId,
-    float Value = 0f);
+    float Value = 0f,
+    float RangeMeters = 0f);
 
 public sealed class PlayerState
 {
@@ -57,7 +83,8 @@ public sealed class PlayerState
     public bool IsGrounded { get; internal set; } = true;
     public bool IsAiming { get; internal set; }
     public float Health { get; internal set; } = 100f;
-    public float MaximumHealth { get; init; } = 100f;
+    public float MaximumHealth { get; internal set; } = 100f;
+    public float AdrenalSeconds { get; internal set; }
     public List<WeaponState> Weapons { get; } = [];
     public int SelectedWeaponIndex { get; internal set; }
 
@@ -66,12 +93,16 @@ public sealed class PlayerState
 
 public sealed class WeaponState
 {
-    public WeaponState(WeaponDefinition definition)
+    private readonly RunModifiers? _modifiers;
+    private float _magazineConsumptionAccumulator;
+
+    public WeaponState(WeaponDefinition definition, RunModifiers? modifiers = null)
     {
         Definition = definition;
-        Magazine = definition.MagazineSize;
-        Reserve = definition.ReserveCapacity;
-        Energy = definition.EnergyCapacity;
+        _modifiers = modifiers;
+        Magazine = MaximumMagazine;
+        Reserve = MaximumReserve;
+        Energy = MaximumEnergy;
     }
 
     public WeaponDefinition Definition { get; }
@@ -84,12 +115,18 @@ public sealed class WeaponState
     public int BurstShotsRemaining { get; internal set; }
     public bool IsOverheated { get; internal set; }
     public bool IsReloading => ReloadRemainingSeconds > 0f;
+    public int MaximumMagazine => ScaleCapacity(Definition.MagazineSize);
+    public int MaximumReserve => ScaleCapacity(Definition.ReserveCapacity);
+    public float MaximumEnergy => Definition.EnergyCapacity * (_modifiers?.CapacityMultiplier ?? 1f);
 
     public void Tick(float deltaSeconds)
     {
         FireCooldownSeconds = MathF.Max(0f, FireCooldownSeconds - deltaSeconds);
-        Heat = MathF.Max(0f, Heat - (Definition.HeatDissipationPerSecond * deltaSeconds));
-        Energy = MathF.Min(Definition.EnergyCapacity, Energy + (Definition.EnergyRegenerationPerSecond * deltaSeconds));
+        float coolingMultiplier = _modifiers?.CoolingMultiplier(Definition.Id) ?? 1f;
+        float recoveryMultiplier = _modifiers?.RecoveryMultiplier ?? 1f;
+        Heat = MathF.Max(0f, Heat - (Definition.HeatDissipationPerSecond * coolingMultiplier * deltaSeconds));
+        Energy = MathF.Min(MaximumEnergy,
+            Energy + (Definition.EnergyRegenerationPerSecond * recoveryMultiplier * deltaSeconds));
         if (IsOverheated && Heat <= 0.35f)
         {
             IsOverheated = false;
@@ -103,7 +140,7 @@ public sealed class WeaponState
         ReloadRemainingSeconds -= deltaSeconds;
         if (ReloadRemainingSeconds <= 0f)
         {
-            int needed = Definition.MagazineSize - Magazine;
+            int needed = MaximumMagazine - Magazine;
             int loaded = Math.Min(needed, Reserve);
             Magazine += loaded;
             Reserve -= loaded;
@@ -121,8 +158,8 @@ public sealed class WeaponState
         bool available = Definition.AmmoMode switch
         {
             AmmoMode.MagazineReserve => Magazine > 0,
-            AmmoMode.RegeneratingEnergy => Energy >= Definition.EnergyPerShot,
-            AmmoMode.Heat => !IsOverheated && Heat + Definition.HeatPerShot <= 1f,
+            AmmoMode.RegeneratingEnergy => Energy >= EffectiveEnergyPerShot,
+            AmmoMode.Heat => !IsOverheated && Heat + EffectiveHeatPerShot <= 1f,
             _ => false,
         };
 
@@ -144,17 +181,24 @@ public sealed class WeaponState
         switch (Definition.AmmoMode)
         {
             case AmmoMode.MagazineReserve:
-                Magazine--;
+                _magazineConsumptionAccumulator += _modifiers?.AmmoCostMultiplier(Definition.Id) ?? 1f;
+                int magazineCost = (int)_magazineConsumptionAccumulator;
+                if (magazineCost > 0)
+                {
+                    Magazine = Math.Max(0, Magazine - magazineCost);
+                    _magazineConsumptionAccumulator -= magazineCost;
+                }
+
                 break;
             case AmmoMode.RegeneratingEnergy:
-                Energy -= Definition.EnergyPerShot;
+                Energy -= EffectiveEnergyPerShot;
                 break;
             case AmmoMode.Heat:
-                Heat += Definition.HeatPerShot;
+                Heat += EffectiveHeatPerShot;
                 break;
         }
 
-        FireCooldownSeconds = Definition.FireIntervalSeconds;
+        FireCooldownSeconds = Definition.FireIntervalSeconds * (_modifiers?.FireIntervalMultiplier ?? 1f);
         return true;
     }
 
@@ -162,7 +206,8 @@ public sealed class WeaponState
     {
         if (Definition.TriggerMode == TriggerMode.Burst && BurstShotsRemaining == 0)
         {
-            BurstShotsRemaining = Math.Max(1, Definition.BurstCount);
+            BurstShotsRemaining = Math.Max(1,
+                Definition.BurstCount + (_modifiers?.BurstCountBonus(Definition.Id) ?? 0));
         }
     }
 
@@ -183,9 +228,9 @@ public sealed class WeaponState
     public void BeginReload()
     {
         if (Definition.AmmoMode == AmmoMode.MagazineReserve && !IsReloading &&
-            Magazine < Definition.MagazineSize && Reserve > 0)
+            Magazine < MaximumMagazine && Reserve > 0)
         {
-            ReloadRemainingSeconds = Definition.ReloadSeconds;
+            ReloadRemainingSeconds = Definition.ReloadSeconds * (_modifiers?.ReloadTimeMultiplier ?? 1f);
         }
     }
 
@@ -193,14 +238,67 @@ public sealed class WeaponState
     {
         if (Definition.AmmoMode == AmmoMode.MagazineReserve)
         {
-            Reserve = Math.Min(Definition.ReserveCapacity, Reserve + amount);
+            Reserve = Math.Min(MaximumReserve, Reserve + amount);
         }
         else
         {
-            Energy = MathF.Min(Definition.EnergyCapacity, Energy + amount);
+            Energy = MathF.Min(MaximumEnergy, Energy + amount);
             Heat = MathF.Max(0f, Heat - (amount / 100f));
         }
     }
+
+    internal WeaponCheckpointState CreateCheckpointState() => new()
+    {
+        WeaponId = Definition.Id,
+        Magazine = Magazine,
+        Reserve = Reserve,
+        Energy = Energy,
+        Heat = Heat,
+        FireCooldownSeconds = FireCooldownSeconds,
+        ReloadRemainingSeconds = ReloadRemainingSeconds,
+        BurstShotsRemaining = BurstShotsRemaining,
+        IsOverheated = IsOverheated,
+        MagazineConsumptionAccumulator = _magazineConsumptionAccumulator,
+    };
+
+    internal void RestoreCheckpointState(WeaponCheckpointState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (!Definition.Id.Equals(state.WeaponId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Weapon checkpoint '{state.WeaponId}' cannot restore '{Definition.Id}'.",
+                nameof(state));
+        }
+
+        Magazine = Math.Clamp(state.Magazine, 0, MaximumMagazine);
+        Reserve = Math.Clamp(state.Reserve, 0, MaximumReserve);
+        Energy = Math.Clamp(FiniteOrZero(state.Energy), 0f, MaximumEnergy);
+        Heat = Math.Clamp(FiniteOrZero(state.Heat), 0f, 1f);
+        FireCooldownSeconds = Math.Clamp(FiniteOrZero(state.FireCooldownSeconds), 0f, 60f);
+        ReloadRemainingSeconds = Math.Clamp(FiniteOrZero(state.ReloadRemainingSeconds), 0f, 60f);
+        int maximumBurst = Definition.TriggerMode == TriggerMode.Burst
+            ? Math.Max(1, Definition.BurstCount + (_modifiers?.BurstCountBonus(Definition.Id) ?? 0))
+            : 0;
+        BurstShotsRemaining = Math.Clamp(state.BurstShotsRemaining, 0, maximumBurst);
+        IsOverheated = Definition.AmmoMode == AmmoMode.Heat && state.IsOverheated;
+        _magazineConsumptionAccumulator = Math.Clamp(
+            FiniteOrZero(state.MagazineConsumptionAccumulator),
+            0f,
+            0.999999f);
+    }
+
+    private float EffectiveEnergyPerShot => Definition.EnergyPerShot *
+        (_modifiers?.AmmoCostMultiplier(Definition.Id) ?? 1f);
+
+    private float EffectiveHeatPerShot => Definition.HeatPerShot *
+        (_modifiers?.HeatGenerationMultiplier(Definition.Id) ?? 1f);
+
+    private int ScaleCapacity(int capacity) => capacity <= 0
+        ? 0
+        : Math.Max(1, (int)MathF.Round(capacity * (_modifiers?.CapacityMultiplier ?? 1f)));
+
+    private static float FiniteOrZero(float value) => float.IsFinite(value) ? value : 0f;
 }
 
 public sealed class EnemyState
@@ -210,6 +308,7 @@ public sealed class EnemyState
     public Vector3 Position { get; internal set; }
     public Vector3 PreviousPosition { get; internal set; }
     public float Health { get; internal set; }
+    public float MaximumHealth { get; internal set; }
     public float AttackCooldownSeconds { get; internal set; }
     public float PathRefreshRemainingSeconds { get; internal set; }
     public List<Vector3> Path { get; internal set; } = [];
@@ -224,7 +323,36 @@ public sealed class EnemyState
     public int CurrentBossPhaseIndex { get; internal set; }
     public EnemyActionState ActionState { get; internal set; }
     public Vector3 ChargeDirection { get; internal set; }
+    public EnemyAttackKind PendingAttackKind { get; internal set; }
+    public float PendingAttackDamageMultiplier { get; internal set; } = 1f;
+    public float PendingAttackSpreadDegrees { get; internal set; }
+    public float PendingAttackSpeedMultiplier { get; internal set; } = 1f;
+    public bool PendingAttackTargetsRelay { get; internal set; }
+    public int PendingAttackProjectileCount { get; internal set; } = 1;
+    public float PendingAttackProjectileSpreadDegrees { get; internal set; }
+    public bool IsElite { get; internal set; }
+    public bool TargetsRelay { get; internal set; }
+    public float StalledSeconds { get; internal set; }
+    public Vector3 LastProgressPosition { get; internal set; }
     public bool IsDead => Health <= 0f;
+}
+
+public sealed class PendingEnemySpawn
+{
+    public required string EnemyId { get; init; }
+    public string PortalId { get; internal set; } = string.Empty;
+    public Vector3 Position { get; internal set; }
+    public float RemainingSeconds { get; internal set; }
+    public bool IsElite { get; init; }
+    public float HealthFraction { get; init; } = 1f;
+}
+
+public sealed class RelayObjectiveState
+{
+    public Vector3 Position { get; init; }
+    public float MaximumHealth { get; init; } = 450f;
+    public float Health { get; internal set; } = 450f;
+    public float RemainingSeconds { get; internal set; }
 }
 
 public sealed class PickupState
@@ -246,11 +374,13 @@ public sealed class ProjectileState
     public required EntityId OwnerId { get; init; }
     public Vector3 Position { get; internal set; }
     public Vector3 PreviousPosition { get; internal set; }
+    public Vector3 Origin { get; init; }
     public Vector3 Velocity { get; init; }
     public float Radius { get; init; }
     public float Damage { get; init; }
     public string? WeaponId { get; init; }
     public bool IsHostile { get; init; }
+    public bool TargetsRelay { get; init; }
     public float SplashRadius { get; init; }
     public float ChainRadius { get; init; }
     public int ChainTargets { get; init; }

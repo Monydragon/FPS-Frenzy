@@ -17,6 +17,8 @@ public sealed class ContentCatalog
     public Dictionary<string, EnemyDefinition> Enemies { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, ArenaDefinition> Arenas { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, WaveSetDefinition> WaveSets { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, UpgradeDefinition> Upgrades { get; } = StandardUpgradeCatalog.All
+        .ToDictionary(definition => definition.Id, StringComparer.OrdinalIgnoreCase);
 
     public static ContentCatalog LoadFromDirectory(string dataRoot)
     {
@@ -26,6 +28,11 @@ public sealed class ContentCatalog
         AddDirectory(Path.Combine(dataRoot, "Enemies"), catalog.Add, Read<EnemyDefinition>);
         AddDirectory(Path.Combine(dataRoot, "Arenas"), catalog.Add, Read<ArenaDefinition>);
         AddDirectory(Path.Combine(dataRoot, "Waves"), catalog.Add, Read<WaveSetDefinition>);
+        string upgradesPath = Path.Combine(dataRoot, "Upgrades");
+        if (Directory.Exists(upgradesPath))
+        {
+            AddDirectory(upgradesPath, catalog.Add, Read<UpgradeDefinition>);
+        }
         catalog.Validate().ThrowIfInvalid();
         return catalog;
     }
@@ -42,6 +49,14 @@ public sealed class ContentCatalog
         IEnumerable<Stream> enemies,
         IEnumerable<Stream> arenas,
         IEnumerable<Stream> waveSets)
+        => Load(weapons, enemies, arenas, waveSets, []);
+
+    public static ContentCatalog Load(
+        IEnumerable<Stream> weapons,
+        IEnumerable<Stream> enemies,
+        IEnumerable<Stream> arenas,
+        IEnumerable<Stream> waveSets,
+        IEnumerable<Stream> upgrades)
     {
         ContentCatalog catalog = new();
         foreach (Stream stream in weapons)
@@ -64,6 +79,11 @@ public sealed class ContentCatalog
             catalog.Add(Read<WaveSetDefinition>(stream));
         }
 
+        foreach (Stream stream in upgrades)
+        {
+            catalog.Add(Read<UpgradeDefinition>(stream));
+        }
+
         catalog.Validate().ThrowIfInvalid();
         return catalog;
     }
@@ -74,6 +94,7 @@ public sealed class ContentCatalog
     private void Add(EnemyDefinition definition) => Enemies.Add(definition.Id, definition);
     private void Add(ArenaDefinition definition) => Arenas.Add(definition.Id, definition);
     private void Add(WaveSetDefinition definition) => WaveSets.Add(definition.Id, definition);
+    private void Add(UpgradeDefinition definition) => Upgrades[definition.Id] = definition;
 
     private static T Read<T>(string path)
     {

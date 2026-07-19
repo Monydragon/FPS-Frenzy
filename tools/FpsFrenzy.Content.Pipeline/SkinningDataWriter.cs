@@ -10,20 +10,30 @@ namespace FpsFrenzy.Content.Pipeline;
 [ContentTypeWriter]
 internal sealed class SkinningDataWriter : ContentTypeWriter<SkinningDataContent>
 {
+    private const int TrsTrackWithCalibrationFormatMarker = -3;
+
     protected override void Write(ContentWriter output, SkinningDataContent value)
     {
+        output.Write(TrsTrackWithCalibrationFormatMarker);
         output.Write(value.AnimationClips.Count);
         foreach (KeyValuePair<string, AnimationClipContent> pair in
                  value.AnimationClips.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             output.Write(pair.Key);
             output.Write(pair.Value.Duration.Ticks);
-            output.Write(pair.Value.Keyframes.Count);
-            foreach (KeyframeContent keyframe in pair.Value.Keyframes)
+            output.Write(pair.Value.SampleRate);
+            output.Write(pair.Value.Tracks.Count);
+            foreach (BoneTrackContent track in pair.Value.Tracks)
             {
-                output.Write(keyframe.Bone);
-                output.Write(keyframe.Time.Ticks);
-                output.Write(keyframe.Transform);
+                output.Write(track.Bone);
+                output.Write(track.Keyframes.Count);
+                foreach (TransformKeyframeContent keyframe in track.Keyframes)
+                {
+                    output.Write(keyframe.Time.Ticks);
+                    output.Write(keyframe.Scale);
+                    output.Write(keyframe.Rotation);
+                    output.Write(keyframe.Translation);
+                }
             }
         }
 
@@ -34,6 +44,9 @@ internal sealed class SkinningDataWriter : ContentTypeWriter<SkinningDataContent
         {
             output.Write(parent);
         }
+
+        output.Write(value.SourceBoundsMinimum);
+        output.Write(value.SourceBoundsMaximum);
     }
 
     public override string GetRuntimeReader(TargetPlatform targetPlatform) =>

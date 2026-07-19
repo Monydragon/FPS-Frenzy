@@ -1,4 +1,4 @@
-using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using FpsFrenzy.Core.Data;
 
@@ -6,7 +6,8 @@ namespace FpsFrenzy.Content.Tests;
 
 public sealed class ContentValidationTests
 {
-    private static readonly string[] ExpectedBossPhases = ["breach", "overload", "rupture"];
+    private static readonly string[] ExpectedBossPhases = ["containment", "overload", "rupture"];
+    private static readonly string[] EmissiveRobotIds = ["robot-wasp", "breach-walker"];
 
     [Fact]
     public void ShippedDefinitionsHaveValidIdsReferencesAndRanges()
@@ -16,9 +17,45 @@ public sealed class ContentValidationTests
 
         Assert.True(catalog.Validate().IsValid);
         Assert.Equal(6, catalog.Weapons.Count);
-        Assert.Equal(6, catalog.Enemies.Count);
+        Assert.Equal(12, catalog.Enemies.Count);
+        Assert.Equal(6, catalog.Enemies.Values.Count(enemy => enemy.SchemaVersion == 2));
         Assert.Contains("training-ring", catalog.Arenas);
         Assert.Contains("orbital-depot", catalog.Arenas);
+    }
+
+    [Fact]
+    public void ShippingCatalogContainsOnlyTheReleaseRobotCampaign()
+    {
+        string root = FindRepositoryRoot();
+        string mgcb = File.ReadAllText(Path.Combine(root, "Content", "FpsFrenzyContent.mgcb"));
+        string[] devOnlyEntries =
+        [
+            "/copy:Data/Arenas/training-ring.json",
+            "/copy:Data/Waves/training-waves.json",
+            "/copy:Data/Waves/release-wave-template.json",
+            "/copy:Data/Enemies/alien-grunt.json",
+            "#begin Models/Enemies/Alien.fbx",
+            "#begin Models/Enemies/Armabee_Evolved.fbx",
+            "#begin Models/Enemies/Orc.fbx",
+            "#begin Models/Enemies/GreenSpikyBlob.fbx",
+            "#begin Models/Enemies/MushroomKing.fbx",
+            "#begin Models/Enemies/BlueDemon.fbx",
+        ];
+
+        Assert.All(devOnlyEntries, entry =>
+            Assert.DoesNotContain(entry, mgcb, StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "alien-",
+            File.ReadAllText(Path.Combine(root, "Content", "Data", "Waves", "orbital-depot-waves.json")),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "big-alien",
+            File.ReadAllText(Path.Combine(root, "Content", "Data", "Waves", "orbital-depot-waves.json")),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "alien-",
+            File.ReadAllText(Path.Combine(root, "Content", "Data", "Waves", "release-wave-template.json")),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -36,26 +73,49 @@ public sealed class ContentValidationTests
     }
 
     [Fact]
-    public void OrbitalDepotIsACompleteMixedTenWaveBossArena()
+    public void OrbitalDepotIsACompleteThreeSectorRobotCampaignArena()
     {
         string root = FindRepositoryRoot();
         ContentCatalog catalog = ContentCatalog.LoadFromDirectory(Path.Combine(root, "Content", "Data"));
         ArenaDefinition arena = catalog.Arenas["orbital-depot"];
-        WaveSetDefinition waves = catalog.WaveSets[arena.WaveSetId];
-        HashSet<string?> pickupWeapons = arena.PickupSpawns
-            .Where(pickup => pickup.Type == PickupType.Weapon)
-            .Select(pickup => pickup.WeaponId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        EnemyDefinition[] releaseEnemies = catalog.Enemies.Values
+            .Where(enemy => enemy.SchemaVersion == 2)
+            .ToArray();
 
-        Assert.Equal(10, waves.Waves.Count);
-        Assert.NotNull(waves.BossWave);
-        Assert.Contains(waves.BossWave!.SpawnGroups, group => group.EnemyId == "big-alien" && group.Count == 1);
-        Assert.Equal(catalog.Weapons.Keys.Order(StringComparer.OrdinalIgnoreCase),
-            pickupWeapons.OfType<string>().Order(StringComparer.OrdinalIgnoreCase));
-        Assert.Contains(waves.Waves.SelectMany(wave => wave.SpawnGroups), group => group.EnemyId == "alien-warden");
+        Assert.Equal(2, arena.SchemaVersion);
+        Assert.Equal(4, arena.Sectors.Count);
+        Assert.NotEqual(System.Numerics.Vector3.Zero, arena.BossArenaAnchor);
+        Assert.DoesNotContain(arena.PickupSpawns, pickup => pickup.Type == PickupType.Weapon);
+        Assert.Equal(5, releaseEnemies.Count(enemy => !enemy.IsBoss));
+        Assert.Single(releaseEnemies, enemy => enemy.IsBoss && enemy.Id == "breach-walker");
+        Assert.All(arena.Sectors, sector =>
+        {
+            Assert.True(sector.SpawnPortals.Count >= 4);
+            Assert.NotEmpty(sector.EnergyGateIds);
+            Assert.All(sector.SpawnPortals, portal => Assert.True(portal.TelegraphSeconds >= 0.75f));
+        });
         Assert.True(arena.BoundsMax.X - arena.BoundsMin.X >= 70f);
         Assert.True(arena.BoundsMax.Z - arena.BoundsMin.Z >= 54f);
         Assert.True(arena.Props.Count >= 40);
+        string[] expectedColliders =
+        [
+            "floor",
+            "north-bulkhead",
+            "south-bulkhead",
+            "west-bulkhead",
+            "east-bulkhead",
+        ];
+        Assert.Equal(
+            expectedColliders.Order(StringComparer.OrdinalIgnoreCase),
+            arena.Primitives
+                .Where(primitive => primitive.HasCollision)
+                .Select(primitive => primitive.Id)
+                .Order(StringComparer.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            arena.Props,
+            prop => prop.Position.Y < 2.5f &&
+                MathF.Abs(prop.Position.X) < 32f &&
+                MathF.Abs(prop.Position.Z) < 24f);
         Assert.Contains(arena.Primitives, primitive => !string.IsNullOrWhiteSpace(primitive.TextureAsset));
         Assert.Contains(arena.Props, prop => prop.Id == "docked-cargo-craft");
         Assert.All(
@@ -63,26 +123,6 @@ public sealed class ContentValidationTests
             prop => Assert.True(prop.AnchorToGround));
         Assert.True(arena.PickupSpawns.Count(pickup => pickup.Type == PickupType.Health) >= 3);
         Assert.True(arena.PickupSpawns.Count(pickup => pickup.Type == PickupType.Ammo) >= 3);
-
-        int previousCount = 0;
-        int previousConcurrency = 0;
-        float previousHealth = 0f;
-        foreach (WaveDefinition wave in waves.Waves)
-        {
-            int count = wave.SpawnGroups.Sum(group => group.Count);
-            float health = wave.SpawnGroups.Sum(group => catalog.Enemies[group.EnemyId].MaxHealth * group.Count);
-            Assert.True(count >= previousCount);
-            Assert.True(wave.MaximumConcurrentEnemies >= previousConcurrency);
-            Assert.InRange(wave.MaximumConcurrentEnemies, 4, 10);
-            if (previousHealth > 0f)
-            {
-                Assert.InRange(health / previousHealth, 1f, 1.4f);
-            }
-
-            previousCount = count;
-            previousConcurrency = wave.MaximumConcurrentEnemies;
-            previousHealth = health;
-        }
 
         Assert.All(arena.PickupSpawns.Where(pickup => pickup.Type == PickupType.Health), pickup =>
         {
@@ -94,27 +134,47 @@ public sealed class ContentValidationTests
             Assert.InRange(pickup.Amount, 20, 40);
             Assert.InRange(pickup.RespawnSeconds, 18f, 30f);
         });
-        Assert.All(arena.PickupSpawns.Where(pickup => pickup.Type == PickupType.Weapon), pickup =>
-            Assert.InRange(pickup.RespawnSeconds, 24f, 32f));
     }
 
     [Fact]
-    public void RegularEnemiesAndBigAlienExposeAuthoredAiRolesAndPhases()
+    public void RobotRosterExposesAuthoredAiRolesVisualsAndBossPhases()
     {
         string root = FindRepositoryRoot();
         ContentCatalog catalog = ContentCatalog.LoadFromDirectory(Path.Combine(root, "Content", "Data"));
+        string mgcb = File.ReadAllText(Path.Combine(root, "Content", "FpsFrenzyContent.mgcb"));
         EnemyBehavior[] regularBehaviors = catalog.Enemies.Values
-            .Where(enemy => !enemy.IsBoss)
+            .Where(enemy => enemy.SchemaVersion == 2 && !enemy.IsBoss)
             .Select(enemy => enemy.Behavior)
             .Order()
             .ToArray();
-        EnemyDefinition boss = catalog.Enemies["big-alien"];
+        EnemyDefinition boss = catalog.Enemies["breach-walker"];
 
         Assert.Equal(Enum.GetValues<EnemyBehavior>().Where(behavior => behavior != EnemyBehavior.Boss).Order(),
             regularBehaviors);
         Assert.True(boss.IsBoss);
         Assert.Equal(ExpectedBossPhases, boss.BossPhases.Select(phase => phase.Id));
         Assert.All(boss.BossPhases.Skip(1), phase => Assert.True(phase.SummonCount > 0));
+        Assert.All(catalog.Enemies.Values.Where(enemy => enemy.SchemaVersion == 2), enemy =>
+        {
+            Assert.StartsWith("Models/Enemies/Robots/", enemy.ModelAsset, StringComparison.Ordinal);
+            Assert.False(string.IsNullOrWhiteSpace(enemy.Visual.AlbedoAsset));
+            Assert.True(enemy.Visual.TargetHeight > 0f);
+            Assert.True(enemy.Visual.CorpseLifetimeSeconds > 0f);
+            Assert.Contains("death", enemy.Visual.AnimationBindings.Keys, StringComparer.OrdinalIgnoreCase);
+            foreach (string textureAsset in new[] { enemy.Visual.AlbedoAsset, enemy.Visual.EmissiveAsset }
+                         .OfType<string>())
+            {
+                string sourcePath = Path.Combine(
+                    root,
+                    "Content",
+                    $"{textureAsset}.png".Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(sourcePath),
+                    $"Enemy '{enemy.Id}' references missing texture '{textureAsset}'.");
+                Assert.Contains($"/build:{textureAsset}.png", mgcb, StringComparison.Ordinal);
+            }
+        });
+        Assert.All(EmissiveRobotIds, enemyId =>
+            Assert.False(string.IsNullOrWhiteSpace(catalog.Enemies[enemyId].Visual.EmissiveAsset)));
     }
 
     [Fact]
@@ -124,6 +184,7 @@ public sealed class ContentValidationTests
         ContentCatalog catalog = ContentCatalog.LoadFromDirectory(Path.Combine(root, "Content", "Data"));
         WaveSetDefinition release = catalog.WaveSets["release-ten-plus-boss"];
 
+        Assert.Equal(2, release.SchemaVersion);
         Assert.Equal(10, release.Waves.Count);
         Assert.NotNull(release.BossWave);
         Assert.Contains(release.BossWave!.SpawnGroups,
@@ -131,19 +192,34 @@ public sealed class ContentValidationTests
     }
 
     [Fact]
-    public void SelectedFbxAssetsAndRequiredAlienClipsArePresent()
+    public void SelectedRobotModelAssetsAndRequiredClipsArePresent()
     {
         string root = FindRepositoryRoot();
         string weapon = Path.Combine(root, "Content", "Models", "Weapons", "blaster-a.fbx");
-        string alien = Path.Combine(root, "Content", "Models", "Enemies", "Alien.fbx");
+        string robotDirectory = Path.Combine(root, "Content", "Models", "Enemies", "Robots");
+        string mgcb = File.ReadAllText(Path.Combine(root, "Content", "FpsFrenzyContent.mgcb"));
 
         Assert.True(File.Exists(weapon));
-        Assert.True(File.Exists(alien));
-        string fbxText = Encoding.ASCII.GetString(File.ReadAllBytes(alien));
-        foreach (string clip in new[] { "Idle", "Walk", "Bite_Front", "HitRecieve", "Death" })
+        foreach (string robot in new[] { "Leela.assbin", "Stan.assbin", "George.assbin", "Mike.assbin", "Enemy_EyeDrone.assbin", "Enemy_Trilobite.assbin" })
         {
-            Assert.Contains(clip, fbxText, StringComparison.Ordinal);
+            Assert.True(File.Exists(Path.Combine(robotDirectory, robot)));
         }
+        Assert.False(File.Exists(Path.Combine(robotDirectory, "Enemy_EyeDrone.fbx")));
+        Assert.False(File.Exists(Path.Combine(robotDirectory, "Enemy_Trilobite.fbx")));
+
+        foreach (string clip in new[] { "Idle", "Run", "Punch", "HitRecieve_1", "Death" })
+        {
+            Assert.Contains(clip, GetMgcbBlock(mgcb, "Models/Enemies/Robots/Leela.assbin"), StringComparison.Ordinal);
+        }
+
+        string eyeDroneBlock = GetMgcbBlock(mgcb, "Models/Enemies/Robots/Enemy_EyeDrone.assbin");
+        string trilobiteBlock = GetMgcbBlock(mgcb, "Models/Enemies/Robots/Enemy_Trilobite.assbin");
+        Assert.Contains("/processorParam:RequiredAnimationClips=Idle,Charging,Attack,Hit,BackFlip", eyeDroneBlock, StringComparison.Ordinal);
+        Assert.Contains("/processorParam:RequiredAnimationClips=Idle,Walk,Run,Attack,Hit,TurnOff", trilobiteBlock, StringComparison.Ordinal);
+        Assert.Contains("/processorParam:NormalizeImportedBoneBasis=False", eyeDroneBlock, StringComparison.Ordinal);
+        Assert.Contains("/processorParam:NormalizeImportedBoneBasis=False", trilobiteBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("CharacterArmature|", eyeDroneBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("CharacterArmature|", trilobiteBlock, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -180,6 +256,38 @@ public sealed class ContentValidationTests
     }
 
     [Fact]
+    public void PaletteModelsDisableMipmapsWhileDetailedRobotsRetainThem()
+    {
+        string root = FindRepositoryRoot();
+        ContentCatalog catalog = ContentCatalog.LoadFromDirectory(Path.Combine(root, "Content", "Data"));
+        string mgcb = File.ReadAllText(Path.Combine(root, "Content", "FpsFrenzyContent.mgcb"));
+        IEnumerable<string> paletteModels = catalog.Weapons.Values.Select(weapon => weapon.ModelAsset)
+            .Concat(catalog.Arenas.Values.SelectMany(arena => arena.Props).Select(prop => prop.ModelAsset))
+            .Concat(
+            [
+                "Models/Pickups/health-crate",
+                "Models/Pickups/ammo-cache",
+                "Models/Arenas/OrbitalDepot/Station/table-display-small",
+                "Models/Arenas/OrbitalDepot/Station/container-flat-open",
+                "Models/Arenas/OrbitalDepot/Station/pipe-ring-colored",
+            ])
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        Assert.All(paletteModels, modelAsset =>
+        {
+            string block = GetMgcbBlock(mgcb, ResolveModelSource(mgcb, modelAsset));
+            Assert.Contains("/processorParam:GenerateMipmaps=False", block, StringComparison.Ordinal);
+            Assert.DoesNotContain("/processorParam:GenerateMipmaps=True", block, StringComparison.Ordinal);
+        });
+        Assert.All(catalog.Enemies.Values.Where(enemy => enemy.SchemaVersion == 2), enemy =>
+        {
+            string block = GetMgcbBlock(mgcb, ResolveModelSource(mgcb, enemy.ModelAsset));
+            Assert.Contains("/processorParam:GenerateMipmaps=True", block, StringComparison.Ordinal);
+            Assert.Equal(TextureSamplingMode.LinearMipmapped, enemy.Visual.TextureSampling);
+        });
+    }
+
+    [Fact]
     public void ThirdPartyManifestRecordsCc0Provenance()
     {
         string root = FindRepositoryRoot();
@@ -197,6 +305,12 @@ public sealed class ContentValidationTests
             "Kenney Space Kit",
             "Kenney Prototype Textures",
             "Kenney UI Pack - Sci-Fi",
+            "Quaternius Animated Mech Pack",
+            "Quaternius Sci-Fi Essentials Kit - Standard",
+            "Kenney Sci-Fi Sounds",
+            "Kenney Digital Audio",
+            "Kenney UI Audio",
+            "OpenGameArt Dark Sci-Fi Audio Pack",
         ];
 
         Assert.Equal(expectedPacks.Length, assets.GetArrayLength());
@@ -204,7 +318,109 @@ public sealed class ContentValidationTests
             expectedPacks.Order(),
             assets.EnumerateArray().Select(asset => asset.GetProperty("pack").GetString()).Order());
         Assert.All(assets.EnumerateArray(), asset =>
-            Assert.Equal("CC0 1.0", asset.GetProperty("license").GetString()));
+        {
+            Assert.Equal("CC0 1.0", asset.GetProperty("license").GetString());
+            Assert.False(string.IsNullOrWhiteSpace(asset.GetProperty("source").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(asset.GetProperty("version").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(asset.GetProperty("modifications").GetString()));
+            string localRoot = asset.GetProperty("localRoot").GetString()!;
+            JsonElement originals = asset.GetProperty("originalFiles");
+            JsonElement locals = asset.GetProperty("localFiles");
+            Assert.True(originals.GetArrayLength() > 0);
+            Assert.True(locals.GetArrayLength() > 0);
+            foreach (JsonElement localFile in locals.EnumerateArray())
+            {
+                string path = Path.Combine(
+                    root,
+                    localRoot.Replace('/', Path.DirectorySeparatorChar),
+                    localFile.GetString()!.Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(path), $"Manifest local file does not exist: {path}");
+            }
+
+            if (asset.TryGetProperty("retainedSourceFiles", out JsonElement retainedSources))
+            {
+                string retainedRoot = asset.GetProperty("retainedSourceRoot").GetString()!;
+                foreach (JsonElement retainedSource in retainedSources.EnumerateArray())
+                {
+                    string path = Path.Combine(
+                        root,
+                        retainedRoot.Replace('/', Path.DirectorySeparatorChar),
+                        retainedSource.GetString()!.Replace('/', Path.DirectorySeparatorChar));
+                    Assert.True(File.Exists(path), $"Manifest retained source does not exist: {path}");
+                }
+            }
+        });
+
+        JsonElement animatedMechs = assets.EnumerateArray().Single(
+            asset => asset.GetProperty("pack").GetString() == "Quaternius Animated Mech Pack");
+        Assert.Equal(4, animatedMechs.GetProperty("sourceDownloads").EnumerateObject().Count());
+        Assert.Equal(4, animatedMechs.GetProperty("retainedSourceFiles").GetArrayLength());
+        JsonElement conversion = animatedMechs.GetProperty("conversion");
+        Assert.Contains("AssimpNet 5.0.0", conversion.GetProperty("tool").GetString(), StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(
+            root,
+            conversion.GetProperty("script").GetString()!.Replace('/', Path.DirectorySeparatorChar))));
+
+        JsonElement sciFiEssentials = assets.EnumerateArray().Single(
+            asset => asset.GetProperty("pack").GetString() == "Quaternius Sci-Fi Essentials Kit - Standard");
+        Assert.Equal(10, sciFiEssentials.GetProperty("retainedSourceFiles").GetArrayLength());
+        Assert.Contains(
+            sciFiEssentials.GetProperty("retainedSourceFiles").EnumerateArray().Select(file => file.GetString()),
+            file => file == "Enemy_EyeDrone.bin");
+        Assert.Contains(
+            sciFiEssentials.GetProperty("retainedSourceFiles").EnumerateArray().Select(file => file.GetString()),
+            file => file == "Enemy_Trilobite.bin");
+        JsonElement sciFiConversion = sciFiEssentials.GetProperty("conversion");
+        Assert.Contains(
+            sciFiConversion.GetProperty("options").EnumerateArray().Select(option => option.GetString()),
+            option => option!.Contains("no animation-key", StringComparison.Ordinal));
+        Assert.True(File.Exists(Path.Combine(
+            root,
+            sciFiConversion.GetProperty("script").GetString()!.Replace('/', Path.DirectorySeparatorChar))));
+        string sciFiSourceRoot = sciFiEssentials.GetProperty("retainedSourceRoot").GetString()!;
+        foreach (JsonProperty expectedHash in sciFiEssentials.GetProperty("retainedSourceSha256").EnumerateObject())
+        {
+            string sourcePath = Path.Combine(
+                root,
+                sciFiSourceRoot.Replace('/', Path.DirectorySeparatorChar),
+                expectedHash.Name);
+            string actualHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sourcePath)));
+            Assert.Equal(expectedHash.Value.GetString(), actualHash);
+        }
+    }
+
+    [Fact]
+    public void CanonicalRobotSourcesAndDerivedModelsUseGitLfs()
+    {
+        string attributes = File.ReadAllText(Path.Combine(FindRepositoryRoot(), ".gitattributes"));
+
+        Assert.Contains("*.gltf filter=lfs diff=lfs merge=lfs -text", attributes, StringComparison.Ordinal);
+        Assert.Contains("*.bin filter=lfs diff=lfs merge=lfs -text", attributes, StringComparison.Ordinal);
+        Assert.Contains("*.assbin filter=lfs diff=lfs merge=lfs -text", attributes, StringComparison.Ordinal);
+    }
+
+    private static string ResolveModelSource(string mgcb, string modelAsset)
+    {
+        foreach (string extension in new[] { ".assbin", ".gltf", ".fbx" })
+        {
+            string candidate = $"{modelAsset}{extension}";
+            if (mgcb.Contains($"#begin {candidate}", StringComparison.Ordinal))
+            {
+                return candidate;
+            }
+        }
+
+        Assert.Fail($"Missing MGCB model source for '{modelAsset}'.");
+        return string.Empty;
+    }
+
+    private static string GetMgcbBlock(string mgcb, string assetPath)
+    {
+        string marker = $"#begin {assetPath}";
+        int start = mgcb.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Missing MGCB block for '{assetPath}'.");
+        int end = mgcb.IndexOf("#begin ", start + marker.Length, StringComparison.Ordinal);
+        return end < 0 ? mgcb[start..] : mgcb[start..end];
     }
 
     private static string FindRepositoryRoot()

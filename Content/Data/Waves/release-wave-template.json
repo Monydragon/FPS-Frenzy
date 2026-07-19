@@ -1,27 +1,27 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "release-ten-plus-boss",
   "difficulty": "Standard",
   "interWaveDelaySeconds": 5.0,
   "waves": [
-    { "id": "wave-01", "maximumConcurrentEnemies": 5, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 5 }] },
-    { "id": "wave-02", "maximumConcurrentEnemies": 6, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 7 }] },
-    { "id": "wave-03", "maximumConcurrentEnemies": 7, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 9 }] },
-    { "id": "wave-04", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 11 }] },
-    { "id": "wave-05", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 13 }] },
-    { "id": "wave-06", "maximumConcurrentEnemies": 9, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 15 }] },
-    { "id": "wave-07", "maximumConcurrentEnemies": 10, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 17 }] },
-    { "id": "wave-08", "maximumConcurrentEnemies": 10, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 19 }] },
-    { "id": "wave-09", "maximumConcurrentEnemies": 11, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 21 }] },
-    { "id": "wave-10", "maximumConcurrentEnemies": 12, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 24 }] }
+    { "id": "wave-01", "maximumConcurrentEnemies": 4, "spawnGroups": [{ "enemyId": "robot-striker", "count": 5 }] },
+    { "id": "wave-02", "maximumConcurrentEnemies": 4, "spawnGroups": [{ "enemyId": "robot-striker", "count": 5 }, { "enemyId": "robot-interceptor", "count": 2 }] },
+    { "id": "wave-03", "maximumConcurrentEnemies": 4, "spawnGroups": [{ "enemyId": "robot-striker", "count": 5 }, { "enemyId": "robot-wasp", "count": 2 }] },
+    { "id": "wave-04", "maximumConcurrentEnemies": 6, "spawnGroups": [{ "enemyId": "robot-striker", "count": 6 }, { "enemyId": "robot-juggernaut", "count": 1 }] },
+    { "id": "wave-05", "maximumConcurrentEnemies": 6, "spawnGroups": [{ "enemyId": "robot-striker", "count": 6 }, { "enemyId": "robot-warden", "count": 1 }] },
+    { "id": "wave-06", "maximumConcurrentEnemies": 6, "spawnGroups": [{ "enemyId": "robot-interceptor", "count": 5 }, { "enemyId": "robot-wasp", "count": 3 }] },
+    { "id": "wave-07", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "robot-striker", "count": 8 }, { "enemyId": "robot-juggernaut", "count": 2 }] },
+    { "id": "wave-08", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "robot-interceptor", "count": 6 }, { "enemyId": "robot-warden", "count": 2 }] },
+    { "id": "wave-09", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "robot-wasp", "count": 6 }, { "enemyId": "robot-juggernaut", "count": 2 }] },
+    { "id": "wave-10", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "robot-striker", "count": 8 }, { "enemyId": "robot-interceptor", "count": 4 }, { "enemyId": "robot-wasp", "count": 3 }, { "enemyId": "robot-warden", "count": 1 }] }
   ],
   "bossWave": {
     "id": "boss-wave",
     "maximumConcurrentEnemies": 3,
     "spawnIntervalSeconds": 0.75,
     "spawnGroups": [
-      { "enemyId": "big-alien", "count": 1 },
-      { "enemyId": "alien-grunt", "count": 2 }
+      { "enemyId": "breach-walker", "count": 1 },
+      { "enemyId": "robot-striker", "count": 2 }
     ]
   }
 }

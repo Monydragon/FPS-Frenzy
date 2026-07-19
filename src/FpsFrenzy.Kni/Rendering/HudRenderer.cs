@@ -1,5 +1,6 @@
 using FpsFrenzy.Core.Data;
 using FpsFrenzy.Core.Simulation;
+using FpsFrenzy.Kni.Progression;
 using FpsFrenzy.Kni.Settings;
 using System.Globalization;
 using Microsoft.Xna.Framework;
@@ -10,6 +11,8 @@ namespace FpsFrenzy.Kni.Rendering;
 
 public sealed class HudRenderer : IDisposable
 {
+    internal const int MaximumResultDetailLines = 5;
+    private const int ResultIdsPerLine = 5;
     private static readonly string[] CardinalNames = ["N", "E", "S", "W"];
     private static readonly float[] CardinalAngles = [0f, MathF.PI / 2f, MathF.PI, -MathF.PI / 2f];
     private readonly GraphicsDevice _graphicsDevice;
@@ -22,6 +25,7 @@ public sealed class HudRenderer : IDisposable
     private readonly int[] _compassMarkerCounts = new int[64];
     private readonly int[] _compassVerticalDirections = new int[64];
     private readonly bool[] _compassBehindMarkers = new bool[64];
+    private readonly bool[] _compassEliteMarkers = new bool[64];
     private bool _disposed;
 
     public HudRenderer(
@@ -45,7 +49,8 @@ public sealed class HudRenderer : IDisposable
         GameSettings settings,
         SettingsMenuController menu,
         string? caption,
-        bool showGameplayHud)
+        bool showGameplayHud,
+        DebugOverlayState debug)
     {
         Rectangle safe = _graphicsDevice.Viewport.TitleSafeArea;
         _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp);
@@ -63,6 +68,11 @@ public sealed class HudRenderer : IDisposable
             {
                 DrawCaption(caption, safe, settings.LargeHudText ? 3 : 2);
             }
+
+            if (debug.Enabled)
+            {
+                DrawDebugOverlay(simulation, debug, safe);
+            }
         }
 
         if (!showGameplayHud || simulation.Phase != GamePhase.Playing || menu.IsOpen)
@@ -71,6 +81,50 @@ public sealed class HudRenderer : IDisposable
         }
 
         _spriteBatch.End();
+    }
+
+    private void DrawDebugOverlay(
+        GameSimulation simulation,
+        DebugOverlayState debug,
+        Rectangle safe)
+    {
+        const int width = 392;
+        const int height = 142;
+        int left = safe.Right - width - 18;
+        int top = safe.Top + 18;
+        DrawOutlined(
+            new Rectangle(left, top, width, height),
+            new Color(3, 10, 16, 224),
+            new Color(60, 235, 190, 220));
+
+        Color heading = new(90, 255, 205);
+        Color value = new(215, 245, 255);
+        _font.Draw(_spriteBatch, "DEBUG TEST SANDBOX", new Vector2(left + 12, top + 10), heading, 1);
+        string objective = simulation.CurrentEncounter?.ObjectiveType.ToString().ToUpperInvariant() ??
+            (simulation.IsBossWave ? "BOSS" : "NONE");
+        _font.Draw(
+            _spriteBatch,
+            $"STAGE {simulation.EncounterNumber}/10  {objective}",
+            new Vector2(left + 12, top + 30),
+            value,
+            1);
+        _font.Draw(
+            _spriteBatch,
+            $"ENEMIES {simulation.RemainingEnemies}  TICK {simulation.Tick}",
+            new Vector2(left + 12, top + 48),
+            value,
+            1);
+        _font.Draw(
+            _spriteBatch,
+            FormattableString.Invariant(
+                $"POS {simulation.Player.Position.X:0.0} {simulation.Player.Position.Y:0.0} {simulation.Player.Position.Z:0.0}"),
+            new Vector2(left + 12, top + 66),
+            value,
+            1);
+        string flags = $"GOD {(debug.GodModeOverride ? "ON" : "OFF")}  COLLISION {(debug.ShowCollision ? "ON" : "OFF")}";
+        _font.Draw(_spriteBatch, flags, new Vector2(left + 12, top + 84), value, 1);
+        _font.Draw(_spriteBatch, "F5 RESET  F6 PREV  F7 NEXT", new Vector2(left + 12, top + 104), heading, 1);
+        _font.Draw(_spriteBatch, "F8 GOD  F9 COMPLETE  F4 COLLISION", new Vector2(left + 12, top + 122), heading, 1);
     }
 
     public void Dispose()
@@ -109,6 +163,7 @@ public sealed class HudRenderer : IDisposable
         Array.Clear(_compassMarkerCounts);
         Array.Clear(_compassVerticalDirections);
         Array.Clear(_compassBehindMarkers);
+        Array.Clear(_compassEliteMarkers);
         foreach (EnemyState enemy in simulation.Enemies)
         {
             if (enemy.IsDead)
@@ -127,6 +182,7 @@ public sealed class HudRenderer : IDisposable
             _compassMarkerCounts[bin]++;
             _compassVerticalDirections[bin] = projection.VerticalDirection;
             _compassBehindMarkers[bin] |= projection.IsBehind;
+            _compassEliteMarkers[bin] |= enemy.IsElite;
         }
 
         for (int bin = 0; bin < _compassMarkerCounts.Length; bin++)
@@ -138,12 +194,16 @@ public sealed class HudRenderer : IDisposable
             }
 
             int x = left + (bin * 14);
-            DrawRect(new Rectangle(x - 3, top + 35, 7, 7), new Color(255, 78, 110));
+            Color markerColor = _compassEliteMarkers[bin]
+                ? new Color(255, 92, 185)
+                : new Color(255, 78, 110);
+            int markerSize = _compassEliteMarkers[bin] ? 11 : 7;
+            DrawRect(new Rectangle(x - (markerSize / 2), top + 39 - (markerSize / 2), markerSize, markerSize), markerColor);
             if (_compassBehindMarkers[bin])
             {
                 int direction = x < centerX ? 1 : -1;
-                DrawRect(new Rectangle(x + (direction * 5), top + 36, 5, 2), new Color(255, 78, 110));
-                DrawRect(new Rectangle(x + (direction * 8), top + 34, 2, 6), new Color(255, 78, 110));
+                DrawRect(new Rectangle(x + (direction * 7), top + 36, 5, 2), markerColor);
+                DrawRect(new Rectangle(x + (direction * 10), top + 34, 2, 6), markerColor);
             }
 
             int vertical = _compassVerticalDirections[bin];
@@ -193,10 +253,26 @@ public sealed class HudRenderer : IDisposable
         int scale = safe.Width < 1000 ? 1 : 2;
         float cursor = safe.Left + 24;
         float y = safe.Top + 20;
-        cursor = DrawText("WAVE ", cursor, y, Color.White, scale);
-        cursor = DrawNumber(Math.Min(simulation.CurrentWaveIndex + 1, simulation.TotalWaves), cursor, y, Color.White, scale);
-        cursor = DrawText("/", cursor, y, Color.White, scale);
-        cursor = DrawNumber(simulation.TotalWaves, cursor, y, Color.White, scale);
+        if (simulation.RunPhase == RunPhase.LegacyWaves)
+        {
+            cursor = DrawText("WAVE ", cursor, y, Color.White, scale);
+            cursor = DrawNumber(Math.Min(simulation.CurrentWaveIndex + 1, simulation.TotalWaves), cursor, y, Color.White, scale);
+            cursor = DrawText("/", cursor, y, Color.White, scale);
+            cursor = DrawNumber(simulation.TotalWaves, cursor, y, Color.White, scale);
+        }
+        else if (simulation.RunPhase == RunPhase.BossActive)
+        {
+            cursor = DrawText("CENTRAL BREACH", cursor, y, new Color(255, 194, 65), scale);
+        }
+        else
+        {
+            cursor = DrawText("SECTOR ", cursor, y, Color.White, scale);
+            cursor = DrawNumber(Math.Clamp(simulation.CurrentSectorNumber, 1, 3), cursor, y, Color.White, scale);
+            cursor = DrawText("/3  ENCOUNTER ", cursor, y, Color.White, scale);
+            cursor = DrawNumber(Math.Clamp(simulation.EncounterNumber, 1, 9), cursor, y, Color.White, scale);
+            cursor = DrawText("/9", cursor, y, Color.White, scale);
+        }
+
         cursor = DrawText("  ENEMIES ", cursor, y, Color.White, scale);
         DrawNumber(simulation.RemainingEnemies, cursor, y, Color.White, scale);
 
@@ -217,6 +293,45 @@ public sealed class HudRenderer : IDisposable
             _font.Draw(_spriteBatch, godMode, new Vector2(badgeX, safe.Top + 48), new Color(255, 226, 140), 1);
         }
 
+        if (simulation.AwaitingArmoryCollection)
+        {
+            int objectiveY = safe.Top + 68;
+            _font.Draw(_spriteBatch, "RECOVERY HUB  COLLECT ARMORY WEAPON",
+                new Vector2(safe.Left + 24, objectiveY), new Color(255, 210, 100), 1);
+        }
+        else if (simulation.RunPhase is RunPhase.EncounterActive or RunPhase.BossActive)
+        {
+            string objective = simulation.RunPhase == RunPhase.BossActive
+                ? "DESTROY BREACH WALKER"
+                : simulation.CurrentEncounter?.ObjectiveType switch
+                {
+                    EncounterObjectiveType.Purge =>
+                        $"PURGE WAVE {simulation.CurrentPressureWaveNumber}/{simulation.CurrentPressureWaveTotal}",
+                    EncounterObjectiveType.RelayDefense =>
+                        $"DEFEND RELAY  WAVE {simulation.CurrentPressureWaveNumber}",
+                    EncounterObjectiveType.EliteHunt when simulation.CurrentPressureWaveNumber <
+                        simulation.CurrentPressureWaveTotal =>
+                        $"TRACK ELITE  WAVE {simulation.CurrentPressureWaveNumber}/{simulation.CurrentPressureWaveTotal}",
+                    EncounterObjectiveType.EliteHunt => "ELIMINATE MARKED ELITE",
+                    _ => "SECURE SECTOR",
+                };
+            int objectiveY = safe.Top + 68;
+            _font.Draw(_spriteBatch, objective, new Vector2(safe.Left + 24, objectiveY), Color.LightCyan, 1);
+            int progressWidth = 210;
+            int progressTop = objectiveY + 17;
+            DrawRect(new Rectangle(safe.Left + 24, progressTop, progressWidth, 7), new Color(5, 12, 20, 220));
+            DrawRect(new Rectangle(safe.Left + 25, progressTop + 1,
+                (int)((progressWidth - 2) * Math.Clamp(simulation.ObjectiveProgress, 0f, 1f)), 5),
+                new Color(87, 220, 245));
+            if (simulation.RelayObjective is not null)
+            {
+                int relayPercent = (int)MathF.Round(
+                    Math.Clamp(simulation.RelayObjective.Health / simulation.RelayObjective.MaximumHealth, 0f, 1f) * 100f);
+                _font.Draw(_spriteBatch, $"RELAY {relayPercent}",
+                    new Vector2(safe.Left + 246, objectiveY), new Color(255, 210, 100), 1);
+            }
+        }
+
         if (simulation.InterWaveRemainingSeconds > 0f && simulation.RemainingEnemies == 0 && simulation.Phase == GamePhase.Playing)
         {
             int seconds = (int)MathF.Ceiling(simulation.InterWaveRemainingSeconds);
@@ -224,6 +339,16 @@ public sealed class HudRenderer : IDisposable
             float incomingX = safe.Center.X - (incomingWidth / 2f);
             incomingX = DrawText("WAVE IN ", incomingX, safe.Center.Y - 100, Color.LightCyan, 3);
             DrawNumber(seconds, incomingX, safe.Center.Y - 100, Color.LightCyan, 3);
+        }
+        else if (simulation.PressureWaveBreakRemainingSeconds > 0f && simulation.RemainingEnemies == 0 &&
+                 simulation.Phase == GamePhase.Playing)
+        {
+            int seconds = Math.Max(1, (int)MathF.Ceiling(simulation.PressureWaveBreakRemainingSeconds));
+            float incomingWidth = PixelFont.Measure("REINFORCEMENTS IN ", 2).X +
+                PixelFont.MeasureNumber(seconds, 2).X;
+            float incomingX = safe.Center.X - (incomingWidth / 2f);
+            incomingX = DrawText("REINFORCEMENTS IN ", incomingX, safe.Center.Y - 100, Color.LightCyan, 2);
+            DrawNumber(seconds, incomingX, safe.Center.Y - 100, Color.LightCyan, 2);
         }
     }
 
@@ -356,6 +481,10 @@ public sealed class HudRenderer : IDisposable
         string title = menu.Page switch
         {
             MenuPage.Main => "FPS FRENZY",
+            MenuPage.Loadout => "LOADOUT",
+            MenuPage.Records => "RECORDS",
+            MenuPage.Tutorial => "BREACH BRIEFING",
+            MenuPage.Reward => "CHOOSE AUGMENT",
             MenuPage.Settings => "SETTINGS",
             MenuPage.Accessibility => "ACCESSIBILITY",
             MenuPage.Pause => "PAUSED",
@@ -376,21 +505,78 @@ public sealed class HudRenderer : IDisposable
         {
             if (menu.Page == MenuPage.Main)
             {
-                DrawCentered("ORBITAL DEPOT // STANDARD", safe.Center.X, safe.Center.Y - 160, Color.LightCyan, 2);
-                DrawCentered("SURVIVE TEN WAVES AND BREAK THE OVERSEER", safe.Center.X, safe.Center.Y - 126,
+                DrawCentered("ORBITAL DEPOT // BREACH PROTOCOL", safe.Center.X, safe.Center.Y - 160, Color.LightCyan, 2);
+                DrawCentered("CLEAR THREE SECTORS. BUILD YOUR ARSENAL. BREAK THE WALKER.", safe.Center.X, safe.Center.Y - 126,
                     new Color(190, 220, 232), 1);
+            }
+            else if (menu.Page == MenuPage.Loadout)
+            {
+                DrawCentered("CHOOSE THE WEAPON THAT STARTS EACH RUN", safe.Center.X, safe.Center.Y - 155,
+                    new Color(190, 220, 232), 1);
+                DrawCentered("OTHER WEAPONS ACTIVATE FROM THE CENTRAL ARMORY", safe.Center.X, safe.Center.Y - 130,
+                    Color.LightCyan, 1);
+            }
+            else if (menu.Page == MenuPage.Records)
+            {
+                ProfileData? profile = menu.Profile;
+                int bestScore = profile?.BestUnassistedRun?.Score ?? 0;
+                int wins = profile?.RunsWon ?? 0;
+                int lifetimeKills = profile?.LifetimeKills ?? 0;
+                DrawCentered($"BEST SCORE {bestScore}", safe.Center.X, safe.Center.Y - 145, Color.LightCyan, 2);
+                DrawCentered($"WINS {wins}   LIFETIME KILLS {lifetimeKills}", safe.Center.X, safe.Center.Y - 105,
+                    new Color(190, 220, 232), 1);
+                DrawCentered("GOD MODE RUNS REMAIN ELIGIBLE FOR UNLOCKS", safe.Center.X, safe.Center.Y - 72,
+                    new Color(255, 210, 100), 1);
+            }
+            else if (menu.Page == MenuPage.Tutorial)
+            {
+                DrawCentered("CLEAR PURGE, RELAY, AND ELITE OBJECTIVES IN THREE SECTORS", safe.Center.X,
+                    safe.Center.Y - 160, Color.LightCyan, 1);
+                DrawCentered("CHOOSE ONE AUGMENT AFTER EVERY ENCOUNTER", safe.Center.X, safe.Center.Y - 132,
+                    new Color(190, 220, 232), 1);
+                DrawCentered("WASD MOVE  MOUSE AIM  LMB FIRE  R RELOAD  SPACE JUMP", safe.Center.X,
+                    safe.Center.Y - 104, new Color(190, 220, 232), 1);
+            }
+            else if (menu.Page == MenuPage.Reward)
+            {
+                DrawCentered("SELECT ONE PERMANENT UPGRADE FOR THIS RUN", safe.Center.X, safe.Center.Y - 150,
+                    Color.LightCyan, 1);
             }
             else if (menu.Page == MenuPage.Results)
             {
+                RunRecord? record = menu.Profile?.MostRecentRun;
                 float resultWidth = PixelFont.Measure("SCORE ", 2).X + PixelFont.MeasureNumber(simulation.Score, 2).X +
                     PixelFont.Measure("  KILLS ", 2).X + PixelFont.MeasureNumber(simulation.Kills, 2).X;
                 float resultX = safe.Center.X - (resultWidth / 2f);
-                resultX = DrawText("SCORE ", resultX, safe.Center.Y - 130, Color.LightCyan, 2);
-                resultX = DrawNumber(simulation.Score, resultX, safe.Center.Y - 130, Color.LightCyan, 2);
-                resultX = DrawText("  KILLS ", resultX, safe.Center.Y - 130, Color.LightCyan, 2);
-                DrawNumber(simulation.Kills, resultX, safe.Center.Y - 130, Color.LightCyan, 2);
-                DrawCentered("STANDARD RUN COMPLETE", safe.Center.X, safe.Center.Y - 92,
+                resultX = DrawText("SCORE ", resultX, safe.Center.Y - 146, Color.LightCyan, 2);
+                resultX = DrawNumber(simulation.Score, resultX, safe.Center.Y - 146, Color.LightCyan, 2);
+                resultX = DrawText("  KILLS ", resultX, safe.Center.Y - 146, Color.LightCyan, 2);
+                DrawNumber(simulation.Kills, resultX, safe.Center.Y - 146, Color.LightCyan, 2);
+                DrawCentered(
+                    simulation.Phase == GamePhase.Victory ? "BREACH WALKER DESTROYED" : "RUN TERMINATED",
+                    safe.Center.X,
+                    safe.Center.Y - 112,
                     simulation.Phase == GamePhase.Victory ? new Color(90, 245, 185) : new Color(255, 194, 65), 1);
+                if (record is not null)
+                {
+                    int elapsedSeconds = Math.Max(0, (int)MathF.Round(record.ElapsedSeconds));
+                    string time = $"{elapsedSeconds / 60:00}:{elapsedSeconds % 60:00}";
+                    DrawCentered($"SEED {record.Seed}   TIME {time}   DAMAGE {(int)MathF.Round(record.DamageTaken)}",
+                        safe.Center.X, safe.Center.Y - 76, new Color(190, 220, 232), 1);
+                    DrawCentered(
+                        $"SECTORS {record.SectorsCompleted}/3   UPGRADES {record.UpgradeIds.Count}/9   " +
+                        (record.GodModeUsed ? "GOD MODE USED" : "STANDARD VERIFIED"),
+                        safe.Center.X, safe.Center.Y - 50,
+                        record.GodModeUsed ? new Color(255, 210, 100) : new Color(150, 235, 205), 1);
+                    List<(string Text, Color Color)> resultDetails = BuildResultDetailLines(
+                        record.NewlyUnlockedIds,
+                        record.UpgradeIds);
+                    for (int detailIndex = 0; detailIndex < resultDetails.Count; detailIndex++)
+                    {
+                        (string detail, Color color) = resultDetails[detailIndex];
+                        DrawCentered(detail, safe.Center.X, safe.Center.Y - 24 + (detailIndex * 18), color, 1);
+                    }
+                }
             }
 
             IReadOnlyList<string> rows = menu.GetRows();
@@ -418,16 +604,26 @@ public sealed class HudRenderer : IDisposable
                 }
 
                 _font.Draw(_spriteBatch, rows[index], new Vector2(panelLeft + 18, y), Color.White, rowScale);
-                string value = GetMenuValue(menu.Page, index, settings);
+                string value = GetMenuValue(menu, index, settings);
                 if (value.Length > 0)
                 {
-                    Vector2 valueSize = PixelFont.Measure(value, rowScale);
-                    _font.Draw(_spriteBatch, value,
-                        new Vector2(panelLeft + panelWidth - valueSize.X - 18, y), Color.LightCyan, rowScale);
+                    if (menu.Page == MenuPage.Reward)
+                    {
+                        _font.Draw(_spriteBatch, value,
+                            new Vector2(panelLeft + 18, y + 28), new Color(190, 220, 232), 1);
+                    }
+                    else
+                    {
+                        Vector2 valueSize = PixelFont.Measure(value, rowScale);
+                        _font.Draw(_spriteBatch, value,
+                            new Vector2(panelLeft + panelWidth - valueSize.X - 18, y), Color.LightCyan, rowScale);
+                    }
                 }
             }
 
-            const string help = "CURSOR FREE  ARROWS ADJUST  ENTER SELECT  ESC BACK";
+            string help = menu.Page == MenuPage.Reward
+                ? "ARROWS CHOOSE  ENTER INSTALL"
+                : "CURSOR FREE  ARROWS ADJUST  ENTER SELECT  ESC BACK";
             Vector2 helpSize = PixelFont.Measure(help, 1);
             _font.Draw(_spriteBatch, help,
                 new Vector2(safe.Center.X - (helpSize.X / 2f), safe.Bottom - 52), new Color(180, 220, 235), 1);
@@ -449,21 +645,76 @@ public sealed class HudRenderer : IDisposable
         }
     }
 
-    private static string GetMenuValue(MenuPage page, int index, GameSettings settings)
+    internal static List<(string Text, Color Color)> BuildResultDetailLines(
+        IReadOnlyList<string> newlyUnlockedIds,
+        IReadOnlyList<string> upgradeIds)
     {
+        List<(string Text, Color Color)> lines = [];
+        if (newlyUnlockedIds.Count == 0)
+        {
+            lines.Add(("NO NEW PROFILE UNLOCKS", Color.LightCyan));
+        }
+        else
+        {
+            AddIdDetailLines(lines, "NEW UNLOCKS", newlyUnlockedIds, Color.LightCyan);
+        }
+
+        AddIdDetailLines(lines, "BUILD", upgradeIds, new Color(190, 220, 232));
+        if (lines.Count <= MaximumResultDetailLines)
+        {
+            return lines;
+        }
+
+        int omittedLineCount = lines.Count - (MaximumResultDetailLines - 1);
+        List<(string Text, Color Color)> bounded = lines.Take(MaximumResultDetailLines - 1).ToList();
+        bounded.Add(($"PLUS {omittedLineCount} MORE RESULT LINES", new Color(190, 220, 232)));
+        return bounded;
+    }
+
+    private static void AddIdDetailLines(
+        List<(string Text, Color Color)> lines,
+        string label,
+        IReadOnlyList<string> ids,
+        Color color)
+    {
+        if (ids.Count == 0)
+        {
+            lines.Add(($"{label} NONE", color));
+            return;
+        }
+
+        for (int index = 0; index < ids.Count; index += ResultIdsPerLine)
+        {
+            string values = string.Join(" / ", ids
+                .Skip(index)
+                .Take(ResultIdsPerLine)
+                .Select(id => id.Replace('-', ' ').ToUpperInvariant()));
+            lines.Add(($"{(index == 0 ? label + "  " : "")}{values}", color));
+        }
+    }
+
+    private static string GetMenuValue(SettingsMenuController menu, int index, GameSettings settings)
+    {
+        MenuPage page = menu.Page;
         if (page == MenuPage.Settings)
         {
             return index switch
             {
                 0 => Percent(settings.MasterVolume),
-                1 => Percent(settings.SoundEffectsVolume),
-                2 => Percent(settings.MouseSensitivity),
-                3 => Percent(settings.GamepadSensitivity),
-                4 => Percent(settings.FieldOfViewScale),
-                5 => settings.RenderFrameRate.ToString(CultureInfo.InvariantCulture),
-                6 => OnOff(settings.GodMode),
+                1 => Percent(settings.MusicVolume),
+                2 => Percent(settings.SoundEffectsVolume),
+                3 => Percent(settings.MouseSensitivity),
+                4 => Percent(settings.GamepadSensitivity),
+                5 => Percent(settings.FieldOfViewScale),
+                6 => settings.RenderFrameRate.ToString(CultureInfo.InvariantCulture),
+                7 => OnOff(settings.GodMode),
                 _ => string.Empty,
             };
+        }
+
+        if (page == MenuPage.Loadout)
+        {
+            return menu.GetSupplementalValue(index);
         }
 
         if (page == MenuPage.Accessibility)

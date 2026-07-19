@@ -1,58 +1,106 @@
-using System.Buffers.Binary;
 using FpsFrenzy.Core.Simulation;
 using FpsFrenzy.Kni.Settings;
 using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Content;
+using Microsoft.Xna.Framework.Media;
+using Vector3 = System.Numerics.Vector3;
 
 namespace FpsFrenzy.Kni.Audio;
 
+public enum AudioMusicState
+{
+    None,
+    Menu,
+    Intermission,
+    Combat,
+    Boss,
+    Victory,
+    Results,
+    Defeat,
+}
+
 public sealed class CombatAudio : IDisposable
 {
-    private const int SampleRate = 22050;
+    private const int MaximumSpatialVoices = 12;
+    private static readonly string[] CueIds =
+    [
+        "pulse-sidearm",
+        "burst-carbine",
+        "scatter-blaster",
+        "beam-rifle",
+        "plasma-launcher",
+        "arc-cannon",
+        "hit",
+        "kill",
+        "dry",
+        "reload",
+        "player-damaged",
+        "pickup",
+        "wave",
+        "boss",
+        "enemy-shot",
+        "charge",
+        "support",
+        "portal",
+        "gate-open",
+        "gate-close",
+        "ui-hover",
+        "ui-confirm",
+        "ui-back",
+        "ui-toggle",
+        "upgrade",
+    ];
+
     private readonly Dictionary<string, SoundEffect> _cues = new(StringComparer.OrdinalIgnoreCase);
-    private SoundEffectInstance? _ambience;
+    private readonly Dictionary<AudioMusicState, Song> _music = [];
+    private readonly List<SoundEffectInstance> _spatialVoices = [];
     private bool _available;
     private bool _disposed;
+    private AudioMusicState _musicState;
+    private bool _victoryStingerActive;
+    private bool _victoryStingerObservedPlaying;
 
-    public CombatAudio(GameSettings settings)
+    public CombatAudio(ContentManager content, GameSettings settings)
     {
+        ArgumentNullException.ThrowIfNull(content);
         try
         {
-            Add("pulse-sidearm", 620f, 0.08f, SynthWave.Square, 0.72f);
-            Add("burst-carbine", 330f, 0.065f, SynthWave.Noise, 0.65f);
-            Add("scatter-blaster", 115f, 0.14f, SynthWave.Noise, 0.9f);
-            Add("beam-rifle", 980f, 0.055f, SynthWave.Saw, 0.45f);
-            Add("plasma-launcher", 210f, 0.19f, SynthWave.Sine, 0.78f);
-            Add("arc-cannon", 440f, 0.22f, SynthWave.Square, 0.7f);
-            Add("hit", 880f, 0.04f, SynthWave.Noise, 0.45f);
-            Add("kill", 170f, 0.18f, SynthWave.Saw, 0.75f);
-            Add("dry", 95f, 0.045f, SynthWave.Square, 0.35f);
-            Add("reload", 245f, 0.07f, SynthWave.Noise, 0.38f);
-            Add("player-damaged", 82f, 0.16f, SynthWave.Saw, 0.72f);
-            Add("pickup", 740f, 0.12f, SynthWave.Sine, 0.52f);
-            Add("wave", 390f, 0.28f, SynthWave.Square, 0.45f);
-            Add("boss", 68f, 0.48f, SynthWave.Saw, 0.85f);
-            Add("enemy-shot", 280f, 0.1f, SynthWave.Sine, 0.4f);
-            Add("charge", 125f, 0.25f, SynthWave.Saw, 0.7f);
-            Add("support", 520f, 0.24f, SynthWave.Sine, 0.4f);
+            foreach (string cueId in CueIds)
+            {
+                _cues.Add(cueId, content.Load<SoundEffect>($"Audio/Sfx/{cueId}"));
+            }
 
-            SoundEffect ambient = Create(52f, 0.9f, SynthWave.Sine, 0.2f, seed: 77);
-            _cues.Add("ambient", ambient);
-            _ambience = ambient.CreateInstance();
-            _ambience.IsLooped = true;
-            ApplySettings(settings);
-            _ambience.Play();
+            _music.Add(AudioMusicState.Menu, LoadMusic(content, AudioMusicState.Menu));
+            _music.Add(AudioMusicState.Intermission, LoadMusic(content, AudioMusicState.Intermission));
+            _music.Add(AudioMusicState.Combat, LoadMusic(content, AudioMusicState.Combat));
+            _music.Add(AudioMusicState.Boss, LoadMusic(content, AudioMusicState.Boss));
+            _music.Add(AudioMusicState.Victory, LoadMusic(content, AudioMusicState.Victory));
+            Song resultsMusic = LoadMusic(content, AudioMusicState.Results);
+            _music.Add(AudioMusicState.Results, resultsMusic);
+            _music.Add(AudioMusicState.Defeat, resultsMusic);
             _available = true;
+            ApplySettings(settings);
+        }
+        catch (ContentLoadException)
+        {
+            _cues.Clear();
+            _music.Clear();
         }
         catch (NoAudioHardwareException)
         {
-            DisposeAudioResources();
+            _cues.Clear();
+            _music.Clear();
         }
     }
 
     public string? Caption { get; private set; }
     public float CaptionRemainingSeconds { get; private set; }
 
-    public void Consume(IReadOnlyList<CombatEvent> events, GameSettings settings)
+    public void Consume(
+        IReadOnlyList<CombatEvent> events,
+        GameSettings settings,
+        Vector3 listenerPosition,
+        Vector3 listenerForward)
     {
         if (!_available)
         {
@@ -65,7 +113,7 @@ public sealed class CombatAudio : IDisposable
             switch (combatEvent.Type)
             {
                 case CombatEventType.WeaponFired:
-                    Play(combatEvent.CueId, settings, pitch: 0f);
+                    Play(combatEvent.CueId, settings);
                     break;
                 case CombatEventType.DryFire:
                     Play("dry", settings);
@@ -78,12 +126,15 @@ public sealed class CombatAudio : IDisposable
                 case CombatEventType.ReloadCompleted:
                     Play("reload", settings, pitch: 0.18f);
                     break;
+                case CombatEventType.WorldImpact:
+                    PlaySpatial("hit", combatEvent.Position, listenerPosition, listenerForward, settings, 0.28f);
+                    break;
                 case CombatEventType.EnemyHit when !hitPlayed:
-                    Play("hit", settings);
+                    PlaySpatial("hit", combatEvent.Position, listenerPosition, listenerForward, settings, 0.7f);
                     hitPlayed = true;
                     break;
                 case CombatEventType.EnemyKilled:
-                    Play("kill", settings);
+                    PlaySpatial("kill", combatEvent.Position, listenerPosition, listenerForward, settings);
                     SetCaption("TARGET DOWN");
                     break;
                 case CombatEventType.PlayerDamaged:
@@ -96,34 +147,177 @@ public sealed class CombatAudio : IDisposable
                     break;
                 case CombatEventType.WaveStarted:
                     Play(combatEvent.CueId == "boss-wave" ? "boss" : "wave", settings);
-                    SetCaption(combatEvent.CueId == "boss-wave" ? "WARNING: MASSIVE HOSTILE" : "INCOMING WAVE");
+                    SetCaption(combatEvent.CueId == "boss-wave" ? "WARNING: BREACH WALKER" : "HOSTILES INBOUND");
                     break;
                 case CombatEventType.BossPhaseChanged:
                     Play("boss", settings, pitch: 0.12f);
                     SetCaption(combatEvent.CueId ?? "BOSS PHASE CHANGED");
                     break;
                 case CombatEventType.EnemyTelegraph:
-                    Play("charge", settings);
+                    PlaySpatial("charge", combatEvent.Position, listenerPosition, listenerForward, settings);
                     SetCaption("CHARGE INCOMING");
                     break;
+                case CombatEventType.EnemyAttackStarted:
+                    PlaySpatial("charge", combatEvent.Position, listenerPosition, listenerForward, settings, 0.72f);
+                    break;
                 case CombatEventType.EnemyAttack:
-                    Play(combatEvent.CueId == "charge" ? "charge" : "enemy-shot", settings, volumeScale: 0.7f);
+                    PlaySpatial(
+                        combatEvent.CueId == "charge" ? "charge" : "enemy-shot",
+                        combatEvent.Position,
+                        listenerPosition,
+                        listenerForward,
+                        settings,
+                        0.8f);
                     break;
                 case CombatEventType.SupportPulse:
-                    Play("support", settings, volumeScale: 0.7f);
+                    PlaySpatial("support", combatEvent.Position, listenerPosition, listenerForward, settings, 0.8f);
                     SetCaption("WARDEN SUPPORT PULSE");
                     break;
+                case CombatEventType.EnemySpawnTelegraph:
+                    PlaySpatial("portal", combatEvent.Position, listenerPosition, listenerForward, settings, 0.9f);
+                    SetCaption("PORTAL CHARGING");
+                    break;
+                case CombatEventType.SectorActivated:
+                    Play("gate-close", settings, volumeScale: 0.85f);
+                    SetCaption($"{combatEvent.CueId?.Replace('-', ' ').ToUpperInvariant()} SEALED");
+                    break;
+                case CombatEventType.EncounterStarted:
+                    Play("wave", settings, pitch: -0.06f, volumeScale: 0.8f);
+                    SetCaption($"OBJECTIVE {combatEvent.CueId?.ToUpperInvariant()}");
+                    break;
+                case CombatEventType.EncounterCompleted:
+                    Play("gate-open", settings, volumeScale: 0.9f);
+                    SetCaption("SECTOR OBJECTIVE COMPLETE");
+                    break;
+                case CombatEventType.EncounterFailed:
+                    Play("boss", settings, pitch: -0.18f);
+                    SetCaption("OBJECTIVE FAILED");
+                    break;
+                case CombatEventType.ArmoryActivated:
+                    Play("upgrade", settings, pitch: 0.12f);
+                    SetCaption($"ARMORY ONLINE {combatEvent.CueId?.Replace('-', ' ').ToUpperInvariant()}");
+                    break;
+                case CombatEventType.UpgradeApplied:
+                    Play("upgrade", settings);
+                    SetCaption($"{combatEvent.CueId?.Replace('-', ' ').ToUpperInvariant()} INSTALLED");
+                    break;
+                case CombatEventType.RelayDamaged:
+                    PlaySpatial("hit", combatEvent.Position, listenerPosition, listenerForward, settings, 0.34f);
+                    SetCaption("RELAY UNDER ATTACK");
+                    break;
             }
+        }
+    }
+
+    public void PlayInterfaceCue(string cueId, GameSettings settings) => Play(cueId, settings, volumeScale: 0.7f);
+
+    public void SetMusicState(AudioMusicState state, GameSettings settings)
+    {
+        ApplySettings(settings);
+        if (!_available || state == _musicState)
+        {
+            return;
+        }
+
+        _musicState = state;
+        _victoryStingerActive = false;
+        _victoryStingerObservedPlaying = false;
+        if (state == AudioMusicState.None || !_music.TryGetValue(state, out Song? song))
+        {
+            MediaPlayer.Stop();
+            return;
+        }
+
+        try
+        {
+            MediaPlayer.IsRepeating = state != AudioMusicState.Victory;
+            MediaPlayer.Play(song);
+            _victoryStingerActive = state == AudioMusicState.Victory;
+        }
+        catch (InvalidOperationException)
+        {
+            // Media playback is optional on headless test/capture machines.
         }
     }
 
     public void Update(float deltaSeconds, GameSettings settings)
     {
         ApplySettings(settings);
+        TryAdvanceVictorySequence();
+        for (int index = _spatialVoices.Count - 1; index >= 0; index--)
+        {
+            if (_spatialVoices[index].State != SoundState.Stopped)
+            {
+                continue;
+            }
+
+            _spatialVoices[index].Dispose();
+            _spatialVoices.RemoveAt(index);
+        }
+
         CaptionRemainingSeconds = MathF.Max(0f, CaptionRemainingSeconds - deltaSeconds);
         if (CaptionRemainingSeconds <= 0f)
         {
             Caption = null;
+        }
+    }
+
+    internal static AudioMusicState? ResolveVictoryFollowUp(
+        AudioMusicState requestedState,
+        bool stingerActive,
+        bool observedPlaying,
+        MediaState playbackState) =>
+        requestedState == AudioMusicState.Victory && stingerActive && observedPlaying &&
+        playbackState == MediaState.Stopped
+            ? AudioMusicState.Results
+            : null;
+
+    internal static string GetMusicAssetName(AudioMusicState state) => state switch
+    {
+        AudioMusicState.Menu => "title",
+        AudioMusicState.Intermission => "airy",
+        AudioMusicState.Combat => "pulse",
+        AudioMusicState.Boss => "urgent",
+        AudioMusicState.Victory => "victory",
+        AudioMusicState.Results or AudioMusicState.Defeat => "transmission",
+        _ => throw new ArgumentOutOfRangeException(nameof(state)),
+    };
+
+    private void TryAdvanceVictorySequence()
+    {
+        if (!_available || !_victoryStingerActive)
+        {
+            return;
+        }
+
+        try
+        {
+            MediaState playbackState = MediaPlayer.State;
+            if (playbackState == MediaState.Playing)
+            {
+                _victoryStingerObservedPlaying = true;
+                return;
+            }
+
+            AudioMusicState? followUp = ResolveVictoryFollowUp(
+                _musicState,
+                _victoryStingerActive,
+                _victoryStingerObservedPlaying,
+                playbackState);
+            if (followUp is not AudioMusicState resultsState ||
+                !_music.TryGetValue(resultsState, out Song? resultsMusic))
+            {
+                return;
+            }
+
+            MediaPlayer.IsRepeating = true;
+            MediaPlayer.Play(resultsMusic);
+            _victoryStingerActive = false;
+            _victoryStingerObservedPlaying = false;
+        }
+        catch (InvalidOperationException)
+        {
+            // Media playback is optional on headless test/capture machines.
         }
     }
 
@@ -134,19 +328,87 @@ public sealed class CombatAudio : IDisposable
             return;
         }
 
-        DisposeAudioResources();
+        try
+        {
+            MediaPlayer.Stop();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        _cues.Clear();
+        _music.Clear();
+        foreach (SoundEffectInstance voice in _spatialVoices)
+        {
+            voice.Stop();
+            voice.Dispose();
+        }
+        _spatialVoices.Clear();
+        _available = false;
         _disposed = true;
         GC.SuppressFinalize(this);
     }
 
-    private void Add(string id, float frequency, float duration, SynthWave wave, float amplitude) =>
-        _cues.Add(id, Create(frequency, duration, wave, amplitude, StringComparer.Ordinal.GetHashCode(id)));
+    private void PlaySpatial(
+        string cueId,
+        Vector3 sourcePosition,
+        Vector3 listenerPosition,
+        Vector3 listenerForward,
+        GameSettings settings,
+        float volumeScale = 1f)
+    {
+        Vector3 offset = sourcePosition - listenerPosition;
+        float distance = offset.Length();
+        float attenuation = Math.Clamp(1f - (distance / 55f), 0.14f, 1f);
+        float pan = 0f;
+        if (distance > 0.001f)
+        {
+            Vector3 planarForward = new(listenerForward.X, 0f, listenerForward.Z);
+            if (planarForward.LengthSquared() > 0.001f)
+            {
+                planarForward = Vector3.Normalize(planarForward);
+                Vector3 right = Vector3.Normalize(Vector3.Cross(planarForward, Vector3.UnitY));
+                pan = Math.Clamp(Vector3.Dot(Vector3.Normalize(offset), right), -1f, 1f);
+            }
+        }
+
+        PlaySpatialInstance(cueId, settings, volumeScale * attenuation, pan);
+    }
+
+    private void PlaySpatialInstance(string cueId, GameSettings settings, float volumeScale, float pan)
+    {
+        if (!_cues.TryGetValue(cueId, out SoundEffect? effect))
+        {
+            return;
+        }
+
+        try
+        {
+            while (_spatialVoices.Count >= MaximumSpatialVoices)
+            {
+                SoundEffectInstance oldest = _spatialVoices[0];
+                oldest.Stop();
+                oldest.Dispose();
+                _spatialVoices.RemoveAt(0);
+            }
+
+            SoundEffectInstance instance = effect.CreateInstance();
+            instance.Volume = Math.Clamp(settings.SoundEffectsVolume * volumeScale, 0f, 1f);
+            instance.Pan = Math.Clamp(pan, -1f, 1f);
+            instance.Play();
+            _spatialVoices.Add(instance);
+        }
+        catch (InstancePlayLimitException)
+        {
+        }
+    }
 
     private void Play(
         string? cueId,
         GameSettings settings,
         float pitch = 0f,
-        float volumeScale = 1f)
+        float volumeScale = 1f,
+        float pan = 0f)
     {
         if (cueId is null || !_cues.TryGetValue(cueId, out SoundEffect? effect))
         {
@@ -155,79 +417,29 @@ public sealed class CombatAudio : IDisposable
 
         try
         {
-            effect.Play(Math.Clamp(settings.SoundEffectsVolume * volumeScale, 0f, 1f), pitch, 0f);
+            effect.Play(
+                Math.Clamp(settings.SoundEffectsVolume * volumeScale, 0f, 1f),
+                Math.Clamp(pitch, -1f, 1f),
+                Math.Clamp(pan, -1f, 1f));
         }
         catch (InstancePlayLimitException)
         {
-            // Dense combat can exceed a platform's voice limit; dropping a duplicate cue is intentional.
+            // Dense combat can exceed a platform's voice limit; duplicate cues may drop.
         }
     }
 
-    private void ApplySettings(GameSettings settings)
+    private static void ApplySettings(GameSettings settings)
     {
         SoundEffect.MasterVolume = settings.MasterVolume;
-        if (_ambience is not null)
-        {
-            _ambience.Volume = Math.Clamp(settings.SoundEffectsVolume * 0.12f, 0f, 1f);
-        }
+        MediaPlayer.Volume = Math.Clamp(settings.MasterVolume * settings.MusicVolume, 0f, 1f);
     }
+
+    private static Song LoadMusic(ContentManager content, AudioMusicState state) =>
+        content.Load<Song>($"Audio/Music/{GetMusicAssetName(state)}");
 
     private void SetCaption(string caption)
     {
         Caption = caption;
         CaptionRemainingSeconds = 1.45f;
-    }
-
-    private void DisposeAudioResources()
-    {
-        _ambience?.Dispose();
-        _ambience = null;
-        foreach (SoundEffect effect in _cues.Values)
-        {
-            effect.Dispose();
-        }
-
-        _cues.Clear();
-        _available = false;
-    }
-
-    private static SoundEffect Create(
-        float frequency,
-        float duration,
-        SynthWave wave,
-        float amplitude,
-        int seed)
-    {
-        int sampleCount = Math.Max(1, (int)(SampleRate * duration));
-        byte[] buffer = new byte[sampleCount * sizeof(short)];
-        Random random = new(seed);
-        for (int index = 0; index < sampleCount; index++)
-        {
-            float time = index / (float)SampleRate;
-            float phase = time * frequency * MathF.Tau;
-            float sample = wave switch
-            {
-                SynthWave.Sine => MathF.Sin(phase),
-                SynthWave.Square => MathF.Sin(phase) >= 0f ? 1f : -1f,
-                SynthWave.Saw => 2f * ((time * frequency) - MathF.Floor(0.5f + (time * frequency))),
-                SynthWave.Noise => (random.NextSingle() * 2f) - 1f,
-                _ => 0f,
-            };
-            float normalized = index / (float)sampleCount;
-            float attack = Math.Clamp(normalized / 0.04f, 0f, 1f);
-            float decay = MathF.Pow(1f - normalized, 1.7f);
-            short value = (short)(Math.Clamp(sample * amplitude * attack * decay, -1f, 1f) * short.MaxValue);
-            BinaryPrimitives.WriteInt16LittleEndian(buffer.AsSpan(index * sizeof(short), sizeof(short)), value);
-        }
-
-        return new SoundEffect(buffer, SampleRate, AudioChannels.Mono);
-    }
-
-    private enum SynthWave
-    {
-        Sine,
-        Square,
-        Saw,
-        Noise,
     }
 }

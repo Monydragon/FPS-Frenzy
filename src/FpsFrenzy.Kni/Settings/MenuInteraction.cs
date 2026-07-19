@@ -28,6 +28,10 @@ public readonly record struct MenuInputSnapshot(
 {
     public bool IsDown(MenuInputButtons button) => (Buttons & button) != 0;
 
+    internal bool HasPointerSelectionIntent(MenuInputSnapshot previous) =>
+        HasPointer &&
+        (!previous.HasPointer || PointerPosition != previous.PointerPosition || PointerDown && !previous.PointerDown);
+
     public static MenuInputSnapshot Capture(MenuPage page, Rectangle safeArea)
     {
         KeyboardState keyboard = Keyboard.GetState();
@@ -141,13 +145,16 @@ public static class MenuLayout
 {
     public static MenuLayoutMetrics Create(Rectangle safeArea, int rowCount, bool largeText, MenuPage page)
     {
-        int rowHeight = largeText ? 39 : 31;
+        int rowHeight = page == MenuPage.Reward
+            ? (largeText ? 70 : 62)
+            : (largeText ? 39 : 31);
         int panelWidth = Math.Min(720, Math.Max(280, safeArea.Width - 120));
         int panelLeft = safeArea.Center.X - (panelWidth / 2);
         int rowTop = page switch
         {
             MenuPage.Main => safeArea.Center.Y - 72,
-            MenuPage.Results => safeArea.Center.Y - 35,
+            MenuPage.Results => safeArea.Center.Y + 94,
+            MenuPage.Reward => safeArea.Center.Y - 72,
             _ => safeArea.Center.Y - 105,
         };
         int panelHeight = (rowCount * rowHeight) + 42;
@@ -156,5 +163,5 @@ public static class MenuLayout
     }
 
     public static Rectangle GetPauseButtonBounds(Rectangle safeArea) =>
-        new(safeArea.Left + 24, safeArea.Top + 68, 104, 48);
+        new(safeArea.Right - 148, safeArea.Top + 66, 104, 48);
 }

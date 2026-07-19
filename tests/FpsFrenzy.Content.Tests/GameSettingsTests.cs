@@ -10,6 +10,7 @@ public sealed class GameSettingsTests
         GameSettings settings = new()
         {
             MasterVolume = 4f,
+            MusicVolume = 8f,
             SoundEffectsVolume = -2f,
             MouseSensitivity = 12f,
             GamepadSensitivity = 0f,
@@ -22,6 +23,7 @@ public sealed class GameSettingsTests
         settings.Clamp();
 
         Assert.Equal(1f, settings.MasterVolume);
+        Assert.Equal(1f, settings.MusicVolume);
         Assert.Equal(0f, settings.SoundEffectsVolume);
         Assert.Equal(2.5f, settings.MouseSensitivity);
         Assert.Equal(0.35f, settings.GamepadSensitivity);

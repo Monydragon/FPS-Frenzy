@@ -7,6 +7,7 @@
       "version": "2.1",
       "originalFiles": ["blaster-a.fbx", "blaster-c.fbx", "blaster-f.fbx", "blaster-j.fbx", "blaster-n.fbx", "blaster-r.fbx", "Textures/colormap.png"],
       "localRoot": "Content/Models/Weapons",
+      "localFiles": ["blaster-a.fbx", "blaster-c.fbx", "blaster-f.fbx", "blaster-j.fbx", "blaster-n.fbx", "blaster-r.fbx", "Textures/colormap.png"],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-16",
       "modifications": "Selected files only; shared texture moved beside the selected FBX files."
@@ -25,6 +26,15 @@
         "Atlas_Monsters.png"
       ],
       "localRoot": "Content/Models/Enemies",
+      "localFiles": [
+        "Alien.fbx",
+        "Armabee_Evolved.fbx",
+        "Orc.fbx",
+        "GreenSpikyBlob.fbx",
+        "MushroomKing.fbx",
+        "BlueDemon.fbx",
+        "Atlas_Monsters.png"
+      ],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-17",
       "modifications": "Selected six animated roster models and the shared atlas only; filenames otherwise unchanged."
@@ -35,6 +45,7 @@
       "version": "2.0",
       "originalFiles": ["box-large.fbx", "barrel.fbx", "Textures/colormap.png"],
       "localRoot": "Content/Models/Pickups",
+      "localFiles": ["health-crate.fbx", "ammo-cache.fbx", "Textures/colormap.png"],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-17",
       "modifications": "Selected files only; box-large.fbx renamed health-crate.fbx and barrel.fbx renamed ammo-cache.fbx."
@@ -52,6 +63,14 @@
         "Textures/colormap.png"
       ],
       "localRoot": "Content/Models/Arenas/OrbitalDepot",
+      "localFiles": [
+        "gate.fbx",
+        "gate-door-window.fbx",
+        "template-wall-detail-a.fbx",
+        "cables.fbx",
+        "stairs-wide.fbx",
+        "Textures/colormap.png"
+      ],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-17",
       "modifications": "Selected files only; models are placed as non-colliding visual dressing over the authored arena collision primitives."
@@ -85,6 +104,30 @@
         "Textures/colormap.png"
       ],
       "localRoot": "Content/Models/Arenas/OrbitalDepot/Station",
+      "localFiles": [
+        "balcony-floor.fbx",
+        "balcony-rail.fbx",
+        "computer-screen.fbx",
+        "computer-wide.fbx",
+        "container-flat-open.fbx",
+        "container.fbx",
+        "container-tall.fbx",
+        "container-wide.fbx",
+        "display-wall-wide.fbx",
+        "floor-detail.fbx",
+        "pipe-bend.fbx",
+        "pipe-ring-colored.fbx",
+        "pipe.fbx",
+        "rail.fbx",
+        "structure-barrier.fbx",
+        "structure-barrier-high.fbx",
+        "table-display-planet.fbx",
+        "table-display-small.fbx",
+        "wall-banner.fbx",
+        "wall-door-wide.fbx",
+        "wall-pillar-banner.fbx",
+        "Textures/colormap.png"
+      ],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-18",
       "modifications": "Selected modular station models and their shared atlas only; models are data-driven visual dressing over authored collision primitives."
@@ -100,6 +143,12 @@
         "satelliteDish_detailed.fbx"
       ],
       "localRoot": "Content/Models/Arenas/OrbitalDepot/SpaceKit",
+      "localFiles": [
+        "craft_cargoA.fbx",
+        "machine_generatorLarge.fbx",
+        "machine_wirelessCable.fbx",
+        "satelliteDish_detailed.fbx"
+      ],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-18",
       "modifications": "Selected FBX files only; stock material colors retained. Models are non-colliding elevated silhouette and landmark dressing."
@@ -114,6 +163,7 @@
         "PNG/Dark/texture_09.png"
       ],
       "localRoot": "Content/Textures/Arenas/OrbitalDepot",
+      "localFiles": ["floor-grid.png", "wall-diagonal.png", "platform-markers.png"],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-18",
       "modifications": "Selected dark grid patterns renamed floor-grid.png, wall-diagonal.png, and platform-markers.png for their arena material roles."
@@ -128,9 +178,251 @@
         "PNG/Green/Default/button_square_header_notch_rectangle_screws.png"
       ],
       "localRoot": "Content/Textures/UI",
+      "localFiles": ["menu-emblem.png", "menu-button.png", "menu-button-selected.png"],
       "license": "CC0 1.0",
       "downloadDate": "2026-07-18",
       "modifications": "Selected interface elements renamed menu-emblem.png, menu-button.png, and menu-button-selected.png; runtime tinting matches the arena palette."
+    },
+    {
+      "source": "https://quaternius.com/packs/animatedmech.html",
+      "pack": "Quaternius Animated Mech Pack",
+      "version": "March 2021",
+      "originalFiles": [
+        "Official glTF/George.gltf",
+        "Official glTF/Leela.gltf",
+        "Official glTF/Mike.gltf",
+        "Official glTF/Stan.gltf",
+        "Textured/Textures/George_Texture.png",
+        "Textured/Textures/Leela_Texture.png",
+        "Textured/Textures/Mike_Texture.png",
+        "Textured/Textures/Stan_Texture.png"
+      ],
+      "sourceDownloads": {
+        "George.gltf": "https://drive.usercontent.google.com/download?id=1-LVJXIGatBYD9ldy_BgCvr-rcpWss_wW&export=download&confirm=t",
+        "Leela.gltf": "https://drive.usercontent.google.com/download?id=1Q1YGX60Ze2WI5oCSel8tYUy8DduEoaCC&export=download&confirm=t",
+        "Mike.gltf": "https://drive.usercontent.google.com/download?id=1XekqFS2x8IRz3W_vYuAvbz0mfDMvD74a&export=download&confirm=t",
+        "Stan.gltf": "https://drive.usercontent.google.com/download?id=1Wkj9SVzI3SMD-leUFWeREo0PfudxmG8Z&export=download&confirm=t"
+      },
+      "retainedSourceRoot": "Content/ThirdParty/Quaternius-Animated-Mech-Pack/CanonicalGLTF",
+      "retainedSourceFiles": ["George.gltf", "Leela.gltf", "Mike.gltf", "Stan.gltf"],
+      "localRoot": "Content/Models/Enemies/Robots",
+      "localFiles": [
+        "George.assbin",
+        "Leela.assbin",
+        "Mike.assbin",
+        "Stan.assbin",
+        "Textures/George_Texture.png",
+        "Textures/Leela_Texture.png",
+        "Textures/Mike_Texture.png",
+        "Textures/Stan_Texture.png"
+      ],
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-19",
+      "conversion": {
+        "script": "tools/Convert-AnimatedMechModels.ps1",
+        "tool": "AssimpNet 5.0.0 from nkast.Xna.Framework.Content.Pipeline.Builder 4.2.9001",
+        "input": "self-contained official glTF",
+        "output": "assbin",
+        "options": [
+          "PostProcessSteps.None on import and export",
+          "identity synthetic RobotArmature parent for the authored Body, Foot.L, and Foot.R skeleton roots",
+          "one 0.000001 non-rendering RobotArmature weight on vertex zero with the same amount removed from its existing weight",
+          "fixed Assimp header timestamp so repeated conversions do not change the derived binary",
+          "post-export verification rejects any numerical change to animation TRS key times or values"
+        ]
+      },
+      "modifications": "Converted the four retained official canonical glTF models to Assimp binary so KNI sees one skeleton root without rewriting animation keys. The derived binary header is stable and every animation TRS key is numerically verified after export. Meshes, UVs, animation TRS tracks, and selected albedo pixels are otherwise unchanged. External albedos are bound explicitly."
+    },
+    {
+      "source": "https://quaternius.com/packs/scifiessentialskit.html",
+      "downloadSource": "https://quaternius.itch.io/sci-fi-essentials-kit",
+      "pack": "Quaternius Sci-Fi Essentials Kit - Standard",
+      "version": "Standard free edition, 2024-11-17",
+      "originalFiles": [
+        "glTF/Enemy_EyeDrone.gltf",
+        "glTF/Enemy_EyeDrone.bin",
+        "glTF/Enemy_Trilobite.gltf",
+        "glTF/Enemy_Trilobite.bin",
+        "glTF/T_Enemies_BaseColor_png.png",
+        "glTF/T_Enemies_Normal.png",
+        "glTF/T_Enemies_ORM.png",
+        "glTF/T_Enemies_Large_BaseColor.png",
+        "glTF/T_Enemies_Large_Normal.png",
+        "glTF/T_Enemies_Large_ORM.png",
+        "Textures/T_Enemies_BaseColor.png",
+        "Textures/T_Enemies_Emissive.png",
+        "Textures/T_Enemies_Normal.png",
+        "Textures/T_Enemies_Large_BaseColor.png",
+        "Textures/T_Enemies_Large_Emissive.png",
+        "Textures/T_Enemies_Large_Normal.png"
+      ],
+      "retainedSourceRoot": "Content/ThirdParty/Quaternius-Sci-Fi-Essentials-Standard/CanonicalGLTF",
+      "retainedSourceFiles": [
+        "Enemy_EyeDrone.gltf",
+        "Enemy_EyeDrone.bin",
+        "Enemy_Trilobite.gltf",
+        "Enemy_Trilobite.bin",
+        "T_Enemies_BaseColor_png.png",
+        "T_Enemies_Normal.png",
+        "T_Enemies_ORM.png",
+        "T_Enemies_Large_BaseColor.png",
+        "T_Enemies_Large_Normal.png",
+        "T_Enemies_Large_ORM.png"
+      ],
+      "retainedSourceSha256": {
+        "Enemy_EyeDrone.gltf": "AE39F7A2CC7698AAA774C9C84DF3263D833023D69E7638E417D88E79CB3C7005",
+        "Enemy_EyeDrone.bin": "3E2006CBB5836C0BDB9E4C0D74115C5301F34150B25D5A36CC2EB98DAA4CE991",
+        "Enemy_Trilobite.gltf": "7B1D95F5B9DD9FF22F0152A239B3373957875AE015A7E19BABD1777E171FF98F",
+        "Enemy_Trilobite.bin": "928F2DAF9EADAC332C3DAF6C1889AC5B4A617566A6CF6129B2DA50DB4A0CC735",
+        "T_Enemies_BaseColor_png.png": "65AB96C4ED89E64D84ED453FD67DFD37027860D81B93FB2A5D5BB2E9E0E35DF8",
+        "T_Enemies_Normal.png": "3E1F78E93B93DF32828EE9A9389665E9CCBE330065A36F365267BD9E094D2187",
+        "T_Enemies_ORM.png": "C9B85F821DF22954CA63CBEB09BC392BBA4E12A3776C413886EA86B8457FD08D",
+        "T_Enemies_Large_BaseColor.png": "AE0067D40A62D5FCD236BEE0DB3A2FDF6BB7AE9D0E6515517B60D4C6C7CB0AA4",
+        "T_Enemies_Large_Normal.png": "0F507D86C9783DB126D97434860D4A8282A707C77FAFC471484E262D9FCB27D9",
+        "T_Enemies_Large_ORM.png": "08D55B86E76F06E7EBDEB68BEAD1B7349BAD30509595706F010E8433FD45DEE3"
+      },
+      "localRoot": "Content/Models/Enemies/Robots",
+      "localFiles": [
+        "Enemy_EyeDrone.assbin",
+        "Enemy_Trilobite.assbin",
+        "Textures/T_Enemies_BaseColor.png",
+        "Textures/T_Enemies_Emissive.png",
+        "Textures/T_Enemies_Normal.png",
+        "Textures/T_Enemies_Large_BaseColor.png",
+        "Textures/T_Enemies_Large_Emissive.png",
+        "Textures/T_Enemies_Large_Normal.png"
+      ],
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-19",
+      "conversion": {
+        "script": "tools/Convert-AnimatedMechModels.ps1",
+        "tool": "AssimpNet 5.0.0 from nkast.Xna.Framework.Content.Pipeline.Builder 4.2.9001",
+        "input": "official glTF with external binary buffers and referenced images",
+        "output": "assbin",
+        "options": [
+          "PostProcessSteps.None on import and export",
+          "identity synthetic RobotArmature parent above the canonical Root skeleton branch while retaining every authored local transform",
+          "one 0.000001 non-rendering RobotArmature weight on vertex zero per mesh with the same amount removed from its existing weight",
+          "fixed Assimp header timestamp so repeated conversions do not change the derived binary",
+          "post-export verification rejects any numerical change to animation TRS key times or values",
+          "no animation-key, coordinate-basis, or source-unit rewrite"
+        ]
+      },
+      "modifications": "Converted the retained canonical glTF models to Assimp binary with one identity RobotArmature parent so KNI recognizes a shared skeleton root. Eye Drone and Trilobite animation TRS key times and values are numerically verified after every conversion; the processor uses NormalizeImportedBoneBasis=False and binds repository-relative albedos explicitly. Production base-color names are normalized, and the selected CC0 emissive masks are retained from the pack's texture set."
+    },
+    {
+      "source": "https://kenney.nl/assets/sci-fi-sounds",
+      "pack": "Kenney Sci-Fi Sounds",
+      "version": "1.0",
+      "originalFiles": [
+        "Audio/doorClose_000.ogg",
+        "Audio/doorClose_002.ogg",
+        "Audio/doorOpen_000.ogg",
+        "Audio/explosionCrunch_002.ogg",
+        "Audio/forceField_003.ogg",
+        "Audio/forceField_004.ogg",
+        "Audio/impactMetal_001.ogg",
+        "Audio/laserLarge_001.ogg",
+        "Audio/laserLarge_004.ogg",
+        "Audio/laserSmall_003.ogg",
+        "Audio/lowFrequency_explosion_000.ogg",
+        "Audio/lowFrequency_explosion_001.ogg"
+      ],
+      "localRoot": "Content/Audio/Sfx",
+      "localFiles": [
+        "gate-close.ogg",
+        "reload.ogg",
+        "gate-open.ogg",
+        "kill.ogg",
+        "support.ogg",
+        "portal.ogg",
+        "hit.ogg",
+        "plasma-launcher.ogg",
+        "scatter-blaster.ogg",
+        "enemy-shot.ogg",
+        "player-damaged.ogg",
+        "boss.ogg"
+      ],
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected OGG files only and renamed them to stable gameplay cue IDs; audio samples are otherwise unchanged. originalFiles and localFiles correspond by array index."
+    },
+    {
+      "source": "https://kenney.nl/assets/digital-audio",
+      "pack": "Kenney Digital Audio",
+      "version": "1.0",
+      "originalFiles": [
+        "Audio/laser1.ogg",
+        "Audio/laser5.ogg",
+        "Audio/laser9.ogg",
+        "Audio/phaserUp6.ogg",
+        "Audio/powerUp7.ogg",
+        "Audio/powerUp11.ogg",
+        "Audio/threeTone2.ogg",
+        "Audio/zapThreeToneUp.ogg"
+      ],
+      "localRoot": "Content/Audio/Sfx",
+      "localFiles": [
+        "pulse-sidearm.ogg",
+        "burst-carbine.ogg",
+        "beam-rifle.ogg",
+        "charge.ogg",
+        "pickup.ogg",
+        "upgrade.ogg",
+        "wave.ogg",
+        "arc-cannon.ogg"
+      ],
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected OGG files only and renamed them to stable gameplay cue IDs; audio samples are otherwise unchanged. originalFiles and localFiles correspond by array index."
+    },
+    {
+      "source": "https://kenney.nl/assets/ui-audio",
+      "pack": "Kenney UI Audio",
+      "version": "1.0",
+      "originalFiles": [
+        "Audio/click1.ogg",
+        "Audio/click3.ogg",
+        "Audio/rollover2.ogg",
+        "Audio/switch2.ogg",
+        "Audio/switch4.ogg"
+      ],
+      "localRoot": "Content/Audio/Sfx",
+      "localFiles": [
+        "dry.ogg",
+        "ui-confirm.ogg",
+        "ui-hover.ogg",
+        "ui-toggle.ogg",
+        "ui-back.ogg"
+      ],
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected OGG files only and renamed them to stable UI and dry-fire cue IDs; audio samples are otherwise unchanged. originalFiles and localFiles correspond by array index."
+    },
+    {
+      "source": "https://opengameart.org/content/dark-sci-fi-audio-pack",
+      "pack": "OpenGameArt Dark Sci-Fi Audio Pack",
+      "version": "Published 2026-05-17; OGG archive updated 2026-07-09",
+      "originalFiles": [
+        "ogg/title.ogg",
+        "ogg/airy.ogg",
+        "ogg/pulse.ogg",
+        "ogg/urgent.ogg",
+        "ogg/transmission.ogg",
+        "ogg/victory.ogg"
+      ],
+      "localRoot": "Content/Audio/Music",
+      "localFiles": [
+        "title.ogg",
+        "airy.ogg",
+        "pulse.ogg",
+        "urgent.ogg",
+        "transmission.ogg",
+        "victory.ogg"
+      ],
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected the six named OGG music/stinger files only; filenames and encoded audio are unchanged."
     }
   ]
 }

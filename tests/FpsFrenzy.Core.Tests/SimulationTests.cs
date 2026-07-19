@@ -11,7 +11,7 @@ public sealed class SimulationTests
     [Fact]
     public void FixedStepAdvancesExactlySixtyTicksPerSecond()
     {
-        using GameSimulation simulation = new(LoadShippedCatalog());
+        using GameSimulation simulation = CreateSimulation(LoadShippedCatalog());
         for (int tick = 0; tick < 60; tick++)
         {
             simulation.Step([]);
@@ -43,7 +43,7 @@ public sealed class SimulationTests
     [Fact]
     public void PauseUsesAnEdgeAndStopsSimulationTicks()
     {
-        using GameSimulation simulation = new(LoadShippedCatalog());
+        using GameSimulation simulation = CreateSimulation(LoadShippedCatalog());
         PlayerCommand pause = new(1, simulation.Player.Id, Vector2.Zero, Vector2.Zero, PlayerButtons.Pause, -1);
 
         simulation.Step([pause]);
@@ -58,7 +58,8 @@ public sealed class SimulationTests
     [InlineData(ShotMode.Projectile)]
     public void DamageKillWaveCompletionAndCleanupRunEndToEnd(ShotMode shotMode)
     {
-        using GameSimulation simulation = new(CreateCombatCatalog(shotMode, includeWeaponPickup: false));
+        using GameSimulation simulation = CreateSimulation(
+            CreateCombatCatalog(shotMode, includeWeaponPickup: false));
         for (int tick = 0; tick < 100; tick++)
         {
             simulation.Step([]);
@@ -106,7 +107,8 @@ public sealed class SimulationTests
     [Fact]
     public void WeaponPickupAddsToRunInventoryAndPersistsAcrossTicks()
     {
-        using GameSimulation simulation = new(CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: true));
+        using GameSimulation simulation = CreateSimulation(
+            CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: true));
 
         simulation.Step([]);
         simulation.Step([]);
@@ -118,7 +120,7 @@ public sealed class SimulationTests
     [Fact]
     public void DuplicateWeaponPickupUsesItsAuthoredRefillAmount()
     {
-        using GameSimulation simulation = new(
+        using GameSimulation simulation = CreateSimulation(
             CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: true),
             startingWeaponId: "burst-carbine");
         WeaponState weapon = simulation.Player.CurrentWeapon;
@@ -153,7 +155,7 @@ public sealed class SimulationTests
     [Fact]
     public void SemiAutomaticSidearmFiresOnceUntilTheTriggerIsReleased()
     {
-        using GameSimulation simulation = new(LoadShippedCatalog(), "training-ring");
+        using GameSimulation simulation = CreateSimulation(LoadShippedCatalog());
         PlayerCommand held = new(1, simulation.Player.Id, Vector2.Zero, Vector2.Zero, PlayerButtons.Fire, -1);
         int fired = 0;
         for (int tick = 0; tick < 30; tick++)
@@ -171,7 +173,7 @@ public sealed class SimulationTests
     [Fact]
     public void WeaponMuzzleFollowsThePlayersLookDirection()
     {
-        using GameSimulation simulation = new(LoadShippedCatalog(), "training-ring");
+        using GameSimulation simulation = CreateSimulation(LoadShippedCatalog());
         Vector3 initialMuzzle = simulation.GetWeaponMuzzlePosition();
 
         PlayerCommand look = new(
@@ -192,9 +194,8 @@ public sealed class SimulationTests
     [Fact]
     public void ProjectileStartsAtTheMuzzleAndConvergesOnTheReticleRay()
     {
-        using GameSimulation simulation = new(
+        using GameSimulation simulation = CreateSimulation(
             LoadShippedCatalog(),
-            "training-ring",
             startingWeaponId: "plasma-launcher");
         PlayerCommand fire = new(
             simulation.Tick + 1,
@@ -220,7 +221,8 @@ public sealed class SimulationTests
     [Fact]
     public void HitscanKeepsReticleAccuracyWhileVisualFeedbackStartsAtTheMuzzle()
     {
-        using GameSimulation simulation = new(CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: false));
+        using GameSimulation simulation = CreateSimulation(
+            CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: false));
         for (int tick = 0; tick < 100; tick++)
         {
             simulation.Step([]);
@@ -252,7 +254,7 @@ public sealed class SimulationTests
     [Fact]
     public void OrbitalDepotMovementStaysFiniteAndInsideArenaBoundsUnderCombatLoad()
     {
-        using GameSimulation simulation = new(LoadShippedCatalog(), "orbital-depot");
+        using GameSimulation simulation = CreateSimulation(LoadShippedCatalog(), "orbital-depot");
         for (int tick = 0; tick < 900 && simulation.Phase == GamePhase.Playing; tick++)
         {
             float strafe = ((tick / 120) & 1) == 0 ? 0.75f : -0.75f;
@@ -285,7 +287,7 @@ public sealed class SimulationTests
             includeWeaponPickup: false,
             enemyAttackRange: 10f,
             enemyAttackDamage: 60f);
-        using GameSimulation simulation = new(catalog);
+        using GameSimulation simulation = CreateSimulation(catalog);
 
         for (int tick = 0; tick < 180 && simulation.Player.Health == simulation.Player.MaximumHealth; tick++)
         {
@@ -327,7 +329,7 @@ public sealed class SimulationTests
         });
         Assert.All(catalog.Enemies.Values.Where(enemy => !enemy.IsBoss), enemy =>
         {
-            Assert.InRange(enemy.MaxHealth, 40f, 200f);
+            Assert.InRange(enemy.MaxHealth, 40f, enemy.SchemaVersion >= 2 ? 260f : 200f);
             Assert.InRange(enemy.AttackDamage, 5f, 30f);
             Assert.InRange(enemy.AttackCooldownSeconds, 0.75f, 3f);
             Assert.InRange(enemy.AttackDamage / enemy.AttackCooldownSeconds, 3f, 12f);
@@ -347,6 +349,15 @@ public sealed class SimulationTests
         float cycleSeconds = ((weapon.BurstCount - 1) * weapon.FireIntervalSeconds) + weapon.BurstRecoverySeconds;
         return damage * weapon.BurstCount / cycleSeconds;
     }
+
+    private static GameSimulation CreateSimulation(
+        ContentCatalog catalog,
+        string arenaId = "training-ring",
+        string startingWeaponId = "pulse-sidearm") => new(catalog, new RunConfiguration
+        {
+            ArenaId = arenaId,
+            StartingWeaponId = startingWeaponId,
+        });
 
     private static ContentCatalog LoadShippedCatalog() =>
         ContentCatalog.LoadFromDirectory(Path.Combine(AppContext.BaseDirectory, "Content", "Data"));

@@ -13,22 +13,19 @@
 
 #---------------------------------- Content ---------------------------------#
 
-/copy:Data/Arenas/training-ring.json
 /copy:Data/Arenas/orbital-depot.json
-/copy:Data/Enemies/alien-grunt.json
-/copy:Data/Enemies/alien-skirmisher.json
-/copy:Data/Enemies/alien-brute.json
-/copy:Data/Enemies/alien-spitter.json
-/copy:Data/Enemies/alien-warden.json
-/copy:Data/Enemies/big-alien.json
+/copy:Data/Enemies/robot-striker.json
+/copy:Data/Enemies/robot-interceptor.json
+/copy:Data/Enemies/robot-juggernaut.json
+/copy:Data/Enemies/robot-wasp.json
+/copy:Data/Enemies/robot-warden.json
+/copy:Data/Enemies/breach-walker.json
 /copy:Data/Weapons/pulse-sidearm.json
 /copy:Data/Weapons/burst-carbine.json
 /copy:Data/Weapons/scatter-blaster.json
 /copy:Data/Weapons/beam-rifle.json
 /copy:Data/Weapons/plasma-launcher.json
 /copy:Data/Weapons/arc-cannon.json
-/copy:Data/Waves/training-waves.json
-/copy:Data/Waves/release-wave-template.json
 /copy:Data/Waves/orbital-depot-waves.json
 /copy:ThirdParty/asset-manifest.json
 
@@ -36,7 +33,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-a.fbx
 
@@ -44,7 +41,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-c.fbx
 
@@ -52,7 +49,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-f.fbx
 
@@ -60,7 +57,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-j.fbx
 
@@ -68,7 +65,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-n.fbx
 
@@ -76,69 +73,191 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-r.fbx
 
-#begin Models/Enemies/Alien.fbx
+#begin Models/Enemies/Robots/Leela.assbin
 /importer:FbxImporter
 /processor:FpsFrenzySkinnedModelProcessor
-/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Bite_Front,CharacterArmature|HitRecieve,CharacterArmature|Death
+/processorParam:RequiredAnimationClips=Idle,Run,Punch,HitRecieve_1,Death
+/processorParam:AnimationSampleRate=30
+/processorParam:SourceScale=1
+/processorParam:NormalizeImportedBoneBasis=False
+/processorParam:AlbedoTexture=Textures/Leela_Texture.png
 /processorParam:ColorKeyEnabled=False
 /processorParam:GenerateMipmaps=True
 /processorParam:PremultiplyTextureAlpha=True
-/build:Models/Enemies/Alien.fbx
+/build:Models/Enemies/Robots/Leela.assbin
 
-#begin Models/Enemies/Armabee_Evolved.fbx
+#begin Models/Enemies/Robots/Stan.assbin
 /importer:FbxImporter
 /processor:FpsFrenzySkinnedModelProcessor
-/processorParam:RequiredAnimationClips=CharacterArmature|Flying_Idle,CharacterArmature|Fast_Flying,CharacterArmature|Headbutt,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:RequiredAnimationClips=Idle,Walk,Shoot,HitRecieve_1,Death
+/processorParam:AnimationSampleRate=30
+/processorParam:SourceScale=1
+/processorParam:NormalizeImportedBoneBasis=False
+/processorParam:AlbedoTexture=Textures/Stan_Texture.png
 /processorParam:ColorKeyEnabled=False
 /processorParam:GenerateMipmaps=True
 /processorParam:PremultiplyTextureAlpha=True
-/build:Models/Enemies/Armabee_Evolved.fbx
+/build:Models/Enemies/Robots/Stan.assbin
 
-#begin Models/Enemies/Orc.fbx
+#begin Models/Enemies/Robots/George.assbin
 /importer:FbxImporter
 /processor:FpsFrenzySkinnedModelProcessor
-/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Punch,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:RequiredAnimationClips=Idle,Walk_Tall,Run_Tall,Punch,HitRecieve_1,Death
+/processorParam:AnimationSampleRate=30
+/processorParam:SourceScale=1
+/processorParam:NormalizeImportedBoneBasis=False
+/processorParam:AlbedoTexture=Textures/George_Texture.png
 /processorParam:ColorKeyEnabled=False
 /processorParam:GenerateMipmaps=True
 /processorParam:PremultiplyTextureAlpha=True
-/build:Models/Enemies/Orc.fbx
+/build:Models/Enemies/Robots/George.assbin
 
-#begin Models/Enemies/GreenSpikyBlob.fbx
+#begin Models/Enemies/Robots/Mike.assbin
 /importer:FbxImporter
 /processor:FpsFrenzySkinnedModelProcessor
-/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Bite_Front,CharacterArmature|HitRecieve,CharacterArmature|Death
+/processorParam:RequiredAnimationClips=Idle,Walk,Shoot,HitRecieve_1,Death
+/processorParam:AnimationSampleRate=30
+/processorParam:SourceScale=1
+/processorParam:NormalizeImportedBoneBasis=False
+/processorParam:AlbedoTexture=Textures/Mike_Texture.png
 /processorParam:ColorKeyEnabled=False
 /processorParam:GenerateMipmaps=True
 /processorParam:PremultiplyTextureAlpha=True
-/build:Models/Enemies/GreenSpikyBlob.fbx
+/build:Models/Enemies/Robots/Mike.assbin
 
-#begin Models/Enemies/MushroomKing.fbx
+#begin Models/Enemies/Robots/Enemy_EyeDrone.assbin
 /importer:FbxImporter
 /processor:FpsFrenzySkinnedModelProcessor
-/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Punch,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:RequiredAnimationClips=Idle,Charging,Attack,Hit,BackFlip
+/processorParam:AnimationSampleRate=30
+/processorParam:SourceScale=1
+/processorParam:NormalizeImportedBoneBasis=False
+/processorParam:AlbedoTexture=Textures/T_Enemies_BaseColor.png
 /processorParam:ColorKeyEnabled=False
 /processorParam:GenerateMipmaps=True
 /processorParam:PremultiplyTextureAlpha=True
-/build:Models/Enemies/MushroomKing.fbx
+/build:Models/Enemies/Robots/Enemy_EyeDrone.assbin
 
-#begin Models/Enemies/BlueDemon.fbx
+#begin Models/Enemies/Robots/Enemy_Trilobite.assbin
 /importer:FbxImporter
 /processor:FpsFrenzySkinnedModelProcessor
-/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Punch,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:RequiredAnimationClips=Idle,Walk,Run,Attack,Hit,TurnOff
+/processorParam:AnimationSampleRate=30
+/processorParam:SourceScale=1
+/processorParam:NormalizeImportedBoneBasis=False
+/processorParam:AlbedoTexture=Textures/T_Enemies_Large_BaseColor.png
 /processorParam:ColorKeyEnabled=False
 /processorParam:GenerateMipmaps=True
 /processorParam:PremultiplyTextureAlpha=True
-/build:Models/Enemies/BlueDemon.fbx
+/build:Models/Enemies/Robots/Enemy_Trilobite.assbin
+
+#begin Models/Enemies/Robots/Textures/Leela_Texture.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255, 0, 255, 255
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:TextureFormat=Compressed
+/build:Models/Enemies/Robots/Textures/Leela_Texture.png
+
+#begin Models/Enemies/Robots/Textures/Stan_Texture.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255, 0, 255, 255
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:TextureFormat=Compressed
+/build:Models/Enemies/Robots/Textures/Stan_Texture.png
+
+#begin Models/Enemies/Robots/Textures/George_Texture.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255, 0, 255, 255
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:TextureFormat=Compressed
+/build:Models/Enemies/Robots/Textures/George_Texture.png
+
+#begin Models/Enemies/Robots/Textures/Mike_Texture.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255, 0, 255, 255
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:TextureFormat=Compressed
+/build:Models/Enemies/Robots/Textures/Mike_Texture.png
+
+#begin Models/Enemies/Robots/Textures/T_Enemies_BaseColor.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255, 0, 255, 255
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:TextureFormat=Compressed
+/build:Models/Enemies/Robots/Textures/T_Enemies_BaseColor.png
+
+#begin Models/Enemies/Robots/Textures/T_Enemies_Emissive.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Models/Enemies/Robots/Textures/T_Enemies_Emissive.png
+
+#begin Models/Enemies/Robots/Textures/T_Enemies_Normal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Models/Enemies/Robots/Textures/T_Enemies_Normal.png
+
+#begin Models/Enemies/Robots/Textures/T_Enemies_Large_BaseColor.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyColor=255, 0, 255, 255
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=True
+/processorParam:ResizeToPowerOfTwo=False
+/processorParam:TextureFormat=Compressed
+/build:Models/Enemies/Robots/Textures/T_Enemies_Large_BaseColor.png
+
+#begin Models/Enemies/Robots/Textures/T_Enemies_Large_Emissive.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Models/Enemies/Robots/Textures/T_Enemies_Large_Emissive.png
+
+#begin Models/Enemies/Robots/Textures/T_Enemies_Large_Normal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Models/Enemies/Robots/Textures/T_Enemies_Large_Normal.png
 
 #begin Models/Pickups/health-crate.fbx
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Pickups/health-crate.fbx
 
@@ -146,7 +265,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Pickups/ammo-cache.fbx
 
@@ -154,7 +273,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/gate.fbx
 
@@ -162,7 +281,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/gate-door-window.fbx
 
@@ -170,7 +289,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/template-wall-detail-a.fbx
 
@@ -178,7 +297,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/cables.fbx
 
@@ -186,7 +305,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/stairs-wide.fbx
 
@@ -194,7 +313,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/SpaceKit/craft_cargoA.fbx
 
@@ -202,7 +321,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/SpaceKit/machine_generatorLarge.fbx
 
@@ -210,7 +329,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/SpaceKit/machine_wirelessCable.fbx
 
@@ -218,7 +337,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/SpaceKit/satelliteDish_detailed.fbx
 
@@ -226,7 +345,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/computer-wide.fbx
 
@@ -234,7 +353,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/balcony-floor.fbx
 
@@ -242,7 +361,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/balcony-rail.fbx
 
@@ -250,7 +369,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/container.fbx
 
@@ -258,7 +377,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/container-tall.fbx
 
@@ -266,7 +385,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/container-wide.fbx
 
@@ -274,7 +393,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/floor-detail.fbx
 
@@ -282,7 +401,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/display-wall-wide.fbx
 
@@ -290,7 +409,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/pipe-bend.fbx
 
@@ -298,7 +417,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/pipe.fbx
 
@@ -306,7 +425,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/rail.fbx
 
@@ -314,7 +433,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/structure-barrier.fbx
 
@@ -322,7 +441,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/structure-barrier-high.fbx
 
@@ -330,7 +449,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/table-display-planet.fbx
 
@@ -338,7 +457,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/wall-door-wide.fbx
 
@@ -346,7 +465,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/wall-pillar-banner.fbx
 
@@ -378,7 +497,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/computer-screen.fbx
 
@@ -386,7 +505,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/container-flat-open.fbx
 
@@ -394,7 +513,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/pipe-ring-colored.fbx
 
@@ -402,7 +521,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/table-display-small.fbx
 
@@ -410,7 +529,7 @@
 /importer:FbxImporter
 /processor:ModelProcessor
 /processorParam:ColorKeyEnabled=False
-/processorParam:GenerateMipmaps=True
+/processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Arenas/OrbitalDepot/Station/wall-banner.fbx
 
@@ -437,3 +556,158 @@
 /processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyAlpha=True
 /build:Textures/UI/menu-emblem.png
+
+#begin Audio/Sfx/pulse-sidearm.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/pulse-sidearm.ogg
+
+#begin Audio/Sfx/burst-carbine.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/burst-carbine.ogg
+
+#begin Audio/Sfx/scatter-blaster.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/scatter-blaster.ogg
+
+#begin Audio/Sfx/beam-rifle.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/beam-rifle.ogg
+
+#begin Audio/Sfx/plasma-launcher.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/plasma-launcher.ogg
+
+#begin Audio/Sfx/arc-cannon.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/arc-cannon.ogg
+
+#begin Audio/Sfx/hit.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/hit.ogg
+
+#begin Audio/Sfx/kill.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/kill.ogg
+
+#begin Audio/Sfx/dry.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/dry.ogg
+
+#begin Audio/Sfx/reload.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/reload.ogg
+
+#begin Audio/Sfx/player-damaged.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/player-damaged.ogg
+
+#begin Audio/Sfx/pickup.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/pickup.ogg
+
+#begin Audio/Sfx/wave.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/wave.ogg
+
+#begin Audio/Sfx/boss.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/boss.ogg
+
+#begin Audio/Sfx/enemy-shot.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/enemy-shot.ogg
+
+#begin Audio/Sfx/charge.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/charge.ogg
+
+#begin Audio/Sfx/support.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/support.ogg
+
+#begin Audio/Sfx/portal.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/portal.ogg
+
+#begin Audio/Sfx/gate-open.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/gate-open.ogg
+
+#begin Audio/Sfx/gate-close.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/gate-close.ogg
+
+#begin Audio/Sfx/ui-hover.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/ui-hover.ogg
+
+#begin Audio/Sfx/ui-confirm.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/ui-confirm.ogg
+
+#begin Audio/Sfx/ui-back.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/ui-back.ogg
+
+#begin Audio/Sfx/ui-toggle.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/ui-toggle.ogg
+
+#begin Audio/Sfx/upgrade.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/build:Audio/Sfx/upgrade.ogg
+
+#begin Audio/Music/title.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/title.ogg
+
+#begin Audio/Music/airy.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/airy.ogg
+
+#begin Audio/Music/pulse.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/pulse.ogg
+
+#begin Audio/Music/urgent.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/urgent.ogg
+
+#begin Audio/Music/transmission.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/transmission.ogg
+
+#begin Audio/Music/victory.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/victory.ogg

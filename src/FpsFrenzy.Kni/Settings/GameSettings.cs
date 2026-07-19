@@ -13,6 +13,7 @@ public enum ColorVisionMode
 public sealed record GameSettings
 {
     public float MasterVolume { get; set; } = 0.85f;
+    public float MusicVolume { get; set; } = 0.65f;
     public float SoundEffectsVolume { get; set; } = 0.9f;
     public float MouseSensitivity { get; set; } = 1f;
     public float GamepadSensitivity { get; set; } = 1f;
@@ -31,6 +32,7 @@ public sealed record GameSettings
     public void Clamp()
     {
         MasterVolume = Math.Clamp(MasterVolume, 0f, 1f);
+        MusicVolume = Math.Clamp(MusicVolume, 0f, 1f);
         SoundEffectsVolume = Math.Clamp(SoundEffectsVolume, 0f, 1f);
         MouseSensitivity = Math.Clamp(MouseSensitivity, 0.35f, 2.5f);
         GamepadSensitivity = Math.Clamp(GamepadSensitivity, 0.35f, 2.5f);

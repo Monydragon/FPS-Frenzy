@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 2,
+  "id": "robot-interceptor",
+  "displayName": "Interceptor",
+  "modelAsset": "Models/Enemies/Robots/Stan",
+  "behavior": "Skirmisher",
+  "animationClips": {
+    "idle": "Idle",
+    "walk": "Walk",
+    "attack": "Shoot",
+    "hit": "HitRecieve_1",
+    "death": "Death"
+  },
+  "visual": {
+    "targetHeight": 1.65,
+    "groundOffset": -0.7,
+    "corpseLifetimeSeconds": 2.5,
+    "albedoAsset": "Models/Enemies/Robots/Textures/Stan_Texture",
+    "emissiveAccent": { "x": 0.85, "y": 0.25, "z": 1.0 },
+    "healthBarAnchor": { "x": 0.0, "y": 1.94, "z": 0.0 },
+    "textureSampling": "LinearMipmapped",
+    "animationBindings": {
+      "idle": { "clipName": "Idle", "loopMode": "Loop" },
+      "locomotion": { "clipName": "Walk", "loopMode": "Loop", "playbackRate": 1.15 },
+      "windup": { "clipName": "Shoot", "loopMode": "PlayOnceHold", "startNormalized": 0.0, "endNormalized": 0.55 },
+      "activeAttack": { "clipName": "Shoot", "loopMode": "PlayOnceHold", "startNormalized": 0.55, "endNormalized": 0.68 },
+      "recovery": { "clipName": "Shoot", "loopMode": "PlayOnceHold", "startNormalized": 0.68, "endNormalized": 1.0 },
+      "hitReaction": { "clipName": "HitRecieve_1", "loopMode": "PlayOnce" },
+      "death": { "clipName": "Death", "loopMode": "PlayOnceHold" }
+    }
+  },
+  "maxHealth": 110.0,
+  "moveSpeed": 4.2,
+  "colliderRadius": 0.52,
+  "colliderHeight": 1.65,
+  "attackRange": 1.2,
+  "attackDamage": 8.0,
+  "attackCooldownSeconds": 1.55,
+  "attackWindupSeconds": 0.55,
+  "attackRecoverySeconds": 0.3,
+  "staggerableDuringWindup": true,
+  "threatWeight": 1.2,
+  "preferredRange": 10.0,
+  "rangedAttackRange": 19.0,
+  "projectileSpeed": 18.0,
+  "projectileRadius": 0.14,
+  "strafeSpeed": 4.8,
+  "tint": { "x": 0.85, "y": 0.25, "z": 1.0 },
+  "scoreValue": 150,
+  "pathRefreshSeconds": 0.3,
+  "healthDropChance": 0.08,
+  "ammoDropChance": 0.18
+}

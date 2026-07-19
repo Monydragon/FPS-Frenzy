@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FpsFrenzy.Core\FpsFrenzy.Core.csproj" />
     <ProjectReference Include="..\..\src\FpsFrenzy.Kni\FpsFrenzy.Kni.csproj" />
+    <ProjectReference Include="..\..\tools\FpsFrenzy.Content.Pipeline\FpsFrenzy.Content.Pipeline.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">

@@ -22,6 +22,34 @@ Binary source art is tracked by Git LFS. Only files selected for the release ros
 - Modification: selected files only; no mesh, rig, animation, or texture edits.
 - Roster mapping: Alien (grunt), Armabee Evolved (skirmisher), Orc (brute), Green Spiky Blob (spitter), Mushroom King (warden), and Blue Demon (boss).
 - Animation stacks are validated per model by the content processor and mapped to the shared idle/walk/attack/hit/death runtime aliases.
+- Migration note: these sources remain in the repository for the raw Training Ring development fixture and rollback reference. After the robot roster passed Character Lab and integrated capture gates, the monster definitions, models, and legacy wave data were removed from the shipping MGCB catalog.
+
+## Quaternius Animated Mech Pack
+
+- Source: https://quaternius.com/packs/animatedmech.html
+- License: CC0 1.0 Universal
+- Pack release: March 2021
+- Downloaded: 2026-07-19 from the publisher's public Google Drive files linked by the source page
+- Selected originals: the self-contained official `George.gltf`, `Leela.gltf`, `Mike.gltf`, and `Stan.gltf`, plus each model's default `_Texture.png` albedo
+- Retained canonical sources: `Content/ThirdParty/Quaternius-Animated-Mech-Pack/CanonicalGLTF`; the exact publisher file URLs are recorded in the machine-readable manifest.
+- Local root: `Content/Models/Enemies/Robots`
+- Production conversion: from PowerShell, run `./tools/Convert-AnimatedMechModels.ps1 -SourceDirectory Content/ThirdParty/Quaternius-Animated-Mech-Pack/CanonicalGLTF -DestinationDirectory Content/Models/Enemies/Robots`. The script uses AssimpNet 5.0.0 from KNI content-builder 4.2.9001 with `PostProcessSteps.None` to write `.assbin` files.
+- Modification: an identity `RobotArmature` parent joins the canonical glTF's separate Body/Foot roots into the single skeleton required by KNI. One `0.000001` non-rendering root influence is added while preserving the vertex's total weight. The non-content Assimp export timestamp is fixed so repeated conversions produce stable derived binaries. Meshes, UVs, authored animation TRS tracks, and albedo pixels are otherwise unchanged; external albedos are bound explicitly. Resulting skins contain George 48, Leela 18, Mike 44, and Stan 44 bones.
+- Roster mapping: Leela (Striker), Stan (Interceptor), George (Juggernaut), and Mike (Warden).
+
+## Quaternius Sci-Fi Essentials Kit - Standard
+
+- Source: https://quaternius.com/packs/scifiessentialskit.html
+- Download source: https://quaternius.itch.io/sci-fi-essentials-kit
+- License: CC0 1.0 Universal
+- Version: Standard free edition dated 2024-11-17 by itch.io
+- Downloaded: 2026-07-19
+- Selected originals: the official `glTF/Enemy_EyeDrone.gltf` and `glTF/Enemy_Trilobite.gltf`, their external `.bin` buffers and six referenced base-color/normal/ORM images, plus the pack's regular/large emissive masks
+- Retained canonical sources: `Content/ThirdParty/Quaternius-Sci-Fi-Essentials-Standard/CanonicalGLTF`; all ten glTF dependencies are byte-for-byte copies of the publisher files.
+- Local root: `Content/Models/Enemies/Robots`
+- Production conversion: from PowerShell, run `./tools/Convert-AnimatedMechModels.ps1 -SourceDirectory Content/ThirdParty/Quaternius-Sci-Fi-Essentials-Standard/CanonicalGLTF -DestinationDirectory Content/Models/Enemies/Robots -Models Enemy_EyeDrone,Enemy_Trilobite`. AssimpNet 5.0.0 imports and exports with `PostProcessSteps.None`.
+- Modification: an identity `RobotArmature` parent wraps the canonical `Root` skeleton branch without changing any authored local transforms. One `0.000001` non-rendering `RobotArmature` influence is added to each mesh while preserving the affected vertex's total weight, allowing KNI to identify one common skeleton root. The converter fixes Assimp's non-content export timestamp and rejects any numerical change to animation TRS key times or values. Runtime processing disables imported-basis normalization, performs no per-keyframe/source-unit rewrite, and explicitly binds repository-relative albedos. Resulting skins contain Eye Drone 9 and Trilobite 21 bones.
+- Roster mapping: Eye Drone (Wasp) and Trilobite (Breach Walker boss).
 
 ## Kenney Survival Kit 2.0
 
@@ -77,6 +105,45 @@ Binary source art is tracked by Git LFS. Only files selected for the release ros
 - Selected originals: blue crosshair emblem and blue/green notched rectangular button panels listed in the machine-readable manifest
 - Local root: `Content/Textures/UI`
 - Modification: renamed to `menu-emblem.png`, `menu-button.png`, and `menu-button-selected.png`; runtime tinting ties the interface to the arena sector palette.
+
+## Kenney Sci-Fi Sounds 1.0
+
+- Source: https://kenney.nl/assets/sci-fi-sounds
+- License: CC0 1.0 Universal
+- Downloaded: 2026-07-18
+- Selected originals: twelve door, explosion, force-field, impact, laser, and low-frequency explosion OGG files listed in the machine-readable manifest
+- Local root: `Content/Audio/Sfx`
+- Modification: renamed to stable gameplay cue IDs for gates, reload, robot destruction, support, portals, impacts, plasma/scatter/enemy fire, player damage, and boss warnings; encoded audio is unchanged.
+
+## Kenney Digital Audio 1.0
+
+- Source: https://kenney.nl/assets/digital-audio
+- License: CC0 1.0 Universal
+- Downloaded: 2026-07-18
+- Selected originals: `laser1.ogg`, `laser5.ogg`, `laser9.ogg`, `phaserUp6.ogg`, `powerUp7.ogg`, `powerUp11.ogg`, `threeTone2.ogg`, and `zapThreeToneUp.ogg`
+- Local root: `Content/Audio/Sfx`
+- Modification: renamed to the Pulse Sidearm, Burst Carbine, Beam Rifle, charge, pickup, upgrade, wave, and Arc Cannon cue IDs; encoded audio is unchanged.
+
+## Kenney UI Audio 1.0
+
+- Source: https://kenney.nl/assets/ui-audio
+- License: CC0 1.0 Universal
+- Downloaded: 2026-07-18
+- Selected originals: `click1.ogg`, `click3.ogg`, `rollover2.ogg`, `switch2.ogg`, and `switch4.ogg`
+- Local root: `Content/Audio/Sfx`
+- Modification: renamed to dry-fire, confirm, hover, toggle, and back cue IDs; encoded audio is unchanged.
+
+## Dark Sci-Fi Audio Pack
+
+- Source: https://opengameart.org/content/dark-sci-fi-audio-pack
+- Author: SRG774
+- License: CC0 1.0 Universal
+- Version: published 2026-05-17; OGG archive updated 2026-07-09
+- Downloaded: 2026-07-18
+- Selected originals: `title.ogg`, `airy.ogg`, `pulse.ogg`, `urgent.ogg`, `transmission.ogg`, and `victory.ogg`
+- Local root: `Content/Audio/Music`
+- Modification: selected files only; filenames and encoded audio are unchanged.
+- Runtime mapping: menu, recovery/upgrade, combat, boss, defeat/results, and victory stinger respectively.
 
 ## Arena construction
 

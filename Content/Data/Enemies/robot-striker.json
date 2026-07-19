@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "id": "robot-striker",
+  "displayName": "Striker",
+  "modelAsset": "Models/Enemies/Robots/Leela",
+  "behavior": "Chaser",
+  "animationClips": {
+    "idle": "Idle",
+    "walk": "Run",
+    "attack": "Punch",
+    "hit": "HitRecieve_1",
+    "death": "Death"
+  },
+  "visual": {
+    "targetHeight": 1.55,
+    "groundOffset": -0.7,
+    "forwardYawDegrees": 0.0,
+    "corpseLifetimeSeconds": 2.5,
+    "albedoAsset": "Models/Enemies/Robots/Textures/Leela_Texture",
+    "emissiveAccent": { "x": 0.08, "y": 0.8, "z": 1.0 },
+    "healthBarAnchor": { "x": 0.0, "y": 1.82, "z": 0.0 },
+    "textureSampling": "LinearMipmapped",
+    "animationBindings": {
+      "idle": { "clipName": "Idle", "loopMode": "Loop" },
+      "locomotion": { "clipName": "Run", "loopMode": "Loop", "playbackRate": 1.12 },
+      "windup": { "clipName": "Punch", "loopMode": "PlayOnceHold", "startNormalized": 0.0, "endNormalized": 0.48 },
+      "activeAttack": { "clipName": "Punch", "loopMode": "PlayOnceHold", "startNormalized": 0.48, "endNormalized": 0.62 },
+      "recovery": { "clipName": "Punch", "loopMode": "PlayOnceHold", "startNormalized": 0.62, "endNormalized": 1.0 },
+      "hitReaction": { "clipName": "HitRecieve_1", "loopMode": "PlayOnce" },
+      "death": { "clipName": "Death", "loopMode": "PlayOnceHold" }
+    }
+  },
+  "maxHealth": 85.0,
+  "moveSpeed": 4.1,
+  "colliderRadius": 0.5,
+  "colliderHeight": 1.55,
+  "attackRange": 1.35,
+  "attackDamage": 10.0,
+  "attackCooldownSeconds": 1.15,
+  "attackWindupSeconds": 0.45,
+  "attackRecoverySeconds": 0.28,
+  "staggerableDuringWindup": true,
+  "threatWeight": 1.0,
+  "scoreValue": 110,
+  "tint": { "x": 0.08, "y": 0.8, "z": 1.0 },
+  "pathRefreshSeconds": 0.32,
+  "healthDropChance": 0.1,
+  "ammoDropChance": 0.18
+}

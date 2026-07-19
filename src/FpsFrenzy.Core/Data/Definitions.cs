@@ -100,6 +100,7 @@ public sealed record EnemyDefinition
     public required string ModelAsset { get; init; }
     public EnemyBehavior Behavior { get; init; } = EnemyBehavior.Chaser;
     public Dictionary<string, string> AnimationClips { get; init; } = [];
+    public EnemyVisualDefinition Visual { get; init; } = new();
     public float MaxHealth { get; init; }
     public float MoveSpeed { get; init; }
     public float ColliderRadius { get; init; }
@@ -107,6 +108,10 @@ public sealed record EnemyDefinition
     public float AttackRange { get; init; }
     public float AttackDamage { get; init; }
     public float AttackCooldownSeconds { get; init; }
+    public float AttackWindupSeconds { get; init; } = 0.45f;
+    public float AttackRecoverySeconds { get; init; } = 0.25f;
+    public bool StaggerableDuringWindup { get; init; } = true;
+    public float ThreatWeight { get; init; } = 1f;
     public float PreferredRange { get; init; } = 7f;
     public float RangedAttackRange { get; init; }
     public float ProjectileSpeed { get; init; }
@@ -163,6 +168,9 @@ public sealed record ArenaDefinition
     public List<ArenaPrimitiveDefinition> Primitives { get; init; } = [];
     public List<ArenaPropDefinition> Props { get; init; } = [];
     public List<PickupSpawnDefinition> PickupSpawns { get; init; } = [];
+    public List<ArenaSectorDefinition> Sectors { get; init; } = [];
+    public Vector3 BossArenaAnchor { get; init; }
+    public Vector3 BossArenaHalfExtents { get; init; } = new(15f, 0f, 12f);
 }
 
 public sealed record ArenaPrimitiveDefinition

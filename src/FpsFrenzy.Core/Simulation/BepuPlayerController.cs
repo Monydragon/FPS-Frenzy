@@ -93,6 +93,16 @@ internal sealed class BepuPlayerController : IDisposable
             grounded);
     }
 
+    public void Teleport(Vector3 eyePosition)
+    {
+        BodyReference body = _simulation.Bodies.GetBodyReference(_bodyHandle);
+        body.Pose.Position = eyePosition - new Vector3(0f, CapsuleCenterToEye, 0f);
+        body.Pose.Orientation = Quaternion.Identity;
+        body.Velocity.Linear = Vector3.Zero;
+        body.Velocity.Angular = Vector3.Zero;
+        body.Awake = true;
+    }
+
     public void Dispose()
     {
         _simulation.Dispose();

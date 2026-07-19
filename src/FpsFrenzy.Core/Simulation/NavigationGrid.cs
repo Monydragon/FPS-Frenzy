@@ -138,6 +138,12 @@ public sealed class NavigationGrid
         destination.Reverse();
     }
 
+    public bool IsWalkable(Vector3 position)
+    {
+        (int x, int z) = ToCell(position);
+        return IsWalkable(x, z);
+    }
+
     private int FindNearestWalkable(int originX, int originZ)
     {
         for (int radius = 0; radius <= 6; radius++)
