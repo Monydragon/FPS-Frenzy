@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "orbital-depot-waves",
+  "difficulty": "Standard",
+  "interWaveDelaySeconds": 5.0,
+  "waves": [
+    { "id": "cargo-breach", "maximumConcurrentEnemies": 4, "spawnIntervalSeconds": 0.6, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 } ] },
+    { "id": "crossfire", "maximumConcurrentEnemies": 5, "spawnIntervalSeconds": 0.56, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 }, { "enemyId": "alien-skirmisher", "count": 2 } ] },
+    { "id": "corrosive-lane", "maximumConcurrentEnemies": 5, "spawnIntervalSeconds": 0.54, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 }, { "enemyId": "alien-spitter", "count": 2 } ] },
+    { "id": "heavy-freight", "maximumConcurrentEnemies": 6, "spawnIntervalSeconds": 0.52, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 }, { "enemyId": "alien-skirmisher", "count": 2 }, { "enemyId": "alien-brute", "count": 1 } ] },
+    { "id": "warden-signal", "maximumConcurrentEnemies": 6, "spawnIntervalSeconds": 0.5, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 6 }, { "enemyId": "alien-spitter", "count": 2 }, { "enemyId": "alien-warden", "count": 1 } ] },
+    { "id": "loading-bay-crush", "maximumConcurrentEnemies": 7, "spawnIntervalSeconds": 0.48, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 6 }, { "enemyId": "alien-skirmisher", "count": 3 }, { "enemyId": "alien-brute", "count": 1 } ] },
+    { "id": "toxic-escort", "maximumConcurrentEnemies": 8, "spawnIntervalSeconds": 0.46, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 6 }, { "enemyId": "alien-spitter", "count": 2 }, { "enemyId": "alien-warden", "count": 1 }, { "enemyId": "alien-brute", "count": 1 } ] },
+    { "id": "depot-lockdown", "maximumConcurrentEnemies": 8, "spawnIntervalSeconds": 0.44, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 }, { "enemyId": "alien-skirmisher", "count": 3 }, { "enemyId": "alien-spitter", "count": 2 }, { "enemyId": "alien-brute", "count": 1 }, { "enemyId": "alien-warden", "count": 1 } ] },
+    { "id": "orbital-surge", "maximumConcurrentEnemies": 9, "spawnIntervalSeconds": 0.42, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 }, { "enemyId": "alien-skirmisher", "count": 3 }, { "enemyId": "alien-spitter", "count": 2 }, { "enemyId": "alien-brute", "count": 2 }, { "enemyId": "alien-warden", "count": 1 } ] },
+    { "id": "final-manifest", "maximumConcurrentEnemies": 10, "spawnIntervalSeconds": 0.4, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 }, { "enemyId": "alien-skirmisher", "count": 4 }, { "enemyId": "alien-spitter", "count": 3 }, { "enemyId": "alien-brute", "count": 2 }, { "enemyId": "alien-warden", "count": 1 } ] }
+  ],
+  "bossWave": {
+    "id": "big-alien-arrival",
+    "maximumConcurrentEnemies": 3,
+    "spawnIntervalSeconds": 0.75,
+    "spawnGroups": [
+      { "enemyId": "big-alien", "count": 1 },
+      { "enemyId": "alien-grunt", "count": 2 }
+    ]
+  }
+}

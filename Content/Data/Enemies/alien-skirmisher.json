@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "alien-skirmisher",
+  "displayName": "Alien Skirmisher",
+  "modelAsset": "Models/Enemies/Armabee_Evolved",
+  "behavior": "Skirmisher",
+  "animationClips": {
+    "idle": "CharacterArmature|Flying_Idle",
+    "walk": "CharacterArmature|Fast_Flying",
+    "attack": "CharacterArmature|Headbutt",
+    "hit": "CharacterArmature|HitReact",
+    "death": "CharacterArmature|Death"
+  },
+  "maxHealth": 55.0,
+  "moveSpeed": 4.2,
+  "colliderRadius": 0.5,
+  "colliderHeight": 1.35,
+  "attackRange": 1.15,
+  "attackDamage": 7.0,
+  "attackCooldownSeconds": 1.4,
+  "preferredRange": 9.0,
+  "rangedAttackRange": 15.0,
+  "projectileSpeed": 17.0,
+  "projectileRadius": 0.13,
+  "strafeSpeed": 4.8,
+  "renderScale": 0.92,
+  "tint": { "x": 0.32, "y": 0.85, "z": 1.0 },
+  "scoreValue": 140,
+  "pathRefreshSeconds": 0.32,
+  "healthDropChance": 0.08,
+  "ammoDropChance": 0.18
+}

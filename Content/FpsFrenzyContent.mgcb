@@ -1,0 +1,439 @@
+
+#----------------------------- Global Properties ----------------------------#
+
+/outputDir:bin/$(Platform)
+/intermediateDir:obj/$(Platform)
+/config:
+/profile:Reach
+/compress:False
+
+#-------------------------------- References --------------------------------#
+
+/reference:../tools/FpsFrenzy.Content.Pipeline/bin/netstandard2.0/FpsFrenzy.Content.Pipeline.dll
+
+#---------------------------------- Content ---------------------------------#
+
+/copy:Data/Arenas/training-ring.json
+/copy:Data/Arenas/orbital-depot.json
+/copy:Data/Enemies/alien-grunt.json
+/copy:Data/Enemies/alien-skirmisher.json
+/copy:Data/Enemies/alien-brute.json
+/copy:Data/Enemies/alien-spitter.json
+/copy:Data/Enemies/alien-warden.json
+/copy:Data/Enemies/big-alien.json
+/copy:Data/Weapons/pulse-sidearm.json
+/copy:Data/Weapons/burst-carbine.json
+/copy:Data/Weapons/scatter-blaster.json
+/copy:Data/Weapons/beam-rifle.json
+/copy:Data/Weapons/plasma-launcher.json
+/copy:Data/Weapons/arc-cannon.json
+/copy:Data/Waves/training-waves.json
+/copy:Data/Waves/release-wave-template.json
+/copy:Data/Waves/orbital-depot-waves.json
+/copy:ThirdParty/asset-manifest.json
+
+#begin Models/Weapons/blaster-a.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-a.fbx
+
+#begin Models/Weapons/blaster-c.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-c.fbx
+
+#begin Models/Weapons/blaster-f.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-f.fbx
+
+#begin Models/Weapons/blaster-j.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-j.fbx
+
+#begin Models/Weapons/blaster-n.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-n.fbx
+
+#begin Models/Weapons/blaster-r.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-r.fbx
+
+#begin Models/Enemies/Alien.fbx
+/importer:FbxImporter
+/processor:FpsFrenzySkinnedModelProcessor
+/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Bite_Front,CharacterArmature|HitRecieve,CharacterArmature|Death
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Enemies/Alien.fbx
+
+#begin Models/Enemies/Armabee_Evolved.fbx
+/importer:FbxImporter
+/processor:FpsFrenzySkinnedModelProcessor
+/processorParam:RequiredAnimationClips=CharacterArmature|Flying_Idle,CharacterArmature|Fast_Flying,CharacterArmature|Headbutt,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Enemies/Armabee_Evolved.fbx
+
+#begin Models/Enemies/Orc.fbx
+/importer:FbxImporter
+/processor:FpsFrenzySkinnedModelProcessor
+/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Punch,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Enemies/Orc.fbx
+
+#begin Models/Enemies/GreenSpikyBlob.fbx
+/importer:FbxImporter
+/processor:FpsFrenzySkinnedModelProcessor
+/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Bite_Front,CharacterArmature|HitRecieve,CharacterArmature|Death
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Enemies/GreenSpikyBlob.fbx
+
+#begin Models/Enemies/MushroomKing.fbx
+/importer:FbxImporter
+/processor:FpsFrenzySkinnedModelProcessor
+/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Punch,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Enemies/MushroomKing.fbx
+
+#begin Models/Enemies/BlueDemon.fbx
+/importer:FbxImporter
+/processor:FpsFrenzySkinnedModelProcessor
+/processorParam:RequiredAnimationClips=CharacterArmature|Idle,CharacterArmature|Walk,CharacterArmature|Punch,CharacterArmature|HitReact,CharacterArmature|Death
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Enemies/BlueDemon.fbx
+
+#begin Models/Pickups/health-crate.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Pickups/health-crate.fbx
+
+#begin Models/Pickups/ammo-cache.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Pickups/ammo-cache.fbx
+
+#begin Models/Arenas/OrbitalDepot/gate.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/gate.fbx
+
+#begin Models/Arenas/OrbitalDepot/gate-door-window.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/gate-door-window.fbx
+
+#begin Models/Arenas/OrbitalDepot/template-wall-detail-a.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/template-wall-detail-a.fbx
+
+#begin Models/Arenas/OrbitalDepot/cables.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/cables.fbx
+
+#begin Models/Arenas/OrbitalDepot/stairs-wide.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/stairs-wide.fbx
+
+#begin Models/Arenas/OrbitalDepot/SpaceKit/craft_cargoA.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/SpaceKit/craft_cargoA.fbx
+
+#begin Models/Arenas/OrbitalDepot/SpaceKit/machine_generatorLarge.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/SpaceKit/machine_generatorLarge.fbx
+
+#begin Models/Arenas/OrbitalDepot/SpaceKit/machine_wirelessCable.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/SpaceKit/machine_wirelessCable.fbx
+
+#begin Models/Arenas/OrbitalDepot/SpaceKit/satelliteDish_detailed.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/SpaceKit/satelliteDish_detailed.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/computer-wide.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/computer-wide.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/balcony-floor.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/balcony-floor.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/balcony-rail.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/balcony-rail.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/container.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/container.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/container-tall.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/container-tall.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/container-wide.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/container-wide.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/floor-detail.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/floor-detail.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/display-wall-wide.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/display-wall-wide.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/pipe-bend.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/pipe-bend.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/pipe.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/pipe.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/rail.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/rail.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/structure-barrier.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/structure-barrier.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/structure-barrier-high.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/structure-barrier-high.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/table-display-planet.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/table-display-planet.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/wall-door-wide.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/wall-door-wide.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/wall-pillar-banner.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/wall-pillar-banner.fbx
+
+#begin Textures/Arenas/OrbitalDepot/floor-grid.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Textures/Arenas/OrbitalDepot/floor-grid.png
+
+#begin Textures/Arenas/OrbitalDepot/wall-diagonal.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Textures/Arenas/OrbitalDepot/wall-diagonal.png
+
+#begin Textures/Arenas/OrbitalDepot/platform-markers.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyAlpha=False
+/build:Textures/Arenas/OrbitalDepot/platform-markers.png
+
+#begin Models/Arenas/OrbitalDepot/Station/computer-screen.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/computer-screen.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/container-flat-open.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/container-flat-open.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/pipe-ring-colored.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/pipe-ring-colored.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/table-display-small.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/table-display-small.fbx
+
+#begin Models/Arenas/OrbitalDepot/Station/wall-banner.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=True
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Arenas/OrbitalDepot/Station/wall-banner.fbx
+
+#begin Textures/UI/menu-button.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/build:Textures/UI/menu-button.png
+
+#begin Textures/UI/menu-button-selected.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/build:Textures/UI/menu-button-selected.png
+
+#begin Textures/UI/menu-emblem.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/build:Textures/UI/menu-emblem.png

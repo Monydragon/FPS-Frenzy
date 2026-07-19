@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/
+.idea/
+TestResults/
+artifacts/
+*.user
+*.suo
+*.pidb
+*.booproj
+*.svd
+*.pdb
+local.properties
+keystore.properties
+*.keystore
+*.jks

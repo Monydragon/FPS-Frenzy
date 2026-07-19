@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "alien-spitter",
+  "displayName": "Alien Spitter",
+  "modelAsset": "Models/Enemies/GreenSpikyBlob",
+  "behavior": "Spitter",
+  "animationClips": {
+    "idle": "CharacterArmature|Idle",
+    "walk": "CharacterArmature|Walk",
+    "attack": "CharacterArmature|Bite_Front",
+    "hit": "CharacterArmature|HitRecieve",
+    "death": "CharacterArmature|Death"
+  },
+  "maxHealth": 80.0,
+  "moveSpeed": 2.7,
+  "colliderRadius": 0.56,
+  "colliderHeight": 1.45,
+  "attackRange": 1.2,
+  "attackDamage": 12.0,
+  "attackCooldownSeconds": 2.4,
+  "preferredRange": 13.0,
+  "rangedAttackRange": 20.0,
+  "projectileSpeed": 13.0,
+  "projectileRadius": 0.28,
+  "projectileSplashRadius": 2.4,
+  "strafeSpeed": 2.8,
+  "tint": { "x": 0.35, "y": 1.0, "z": 0.42 },
+  "scoreValue": 190,
+  "pathRefreshSeconds": 0.5,
+  "healthDropChance": 0.1,
+  "ammoDropChance": 0.15
+}

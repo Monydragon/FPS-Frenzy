@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "source": "https://kenney.nl/assets/blaster-kit",
+      "pack": "Kenney Blaster Kit",
+      "version": "2.1",
+      "originalFiles": ["blaster-a.fbx", "blaster-c.fbx", "blaster-f.fbx", "blaster-j.fbx", "blaster-n.fbx", "blaster-r.fbx", "Textures/colormap.png"],
+      "localRoot": "Content/Models/Weapons",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-16",
+      "modifications": "Selected files only; shared texture moved beside the selected FBX files."
+    },
+    {
+      "source": "https://quaternius.com/packs/ultimatemonsters.html",
+      "pack": "Quaternius Ultimate Monsters",
+      "version": "downloaded 2026-07-16",
+      "originalFiles": [
+        "Blob/FBX/Alien.fbx",
+        "Flying/FBX/Armabee_Evolved.fbx",
+        "Big/FBX/Orc.fbx",
+        "Blob/FBX/GreenSpikyBlob.fbx",
+        "Big/FBX/MushroomKing.fbx",
+        "Big/FBX/BlueDemon.fbx",
+        "Atlas_Monsters.png"
+      ],
+      "localRoot": "Content/Models/Enemies",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-17",
+      "modifications": "Selected six animated roster models and the shared atlas only; filenames otherwise unchanged."
+    },
+    {
+      "source": "https://kenney.nl/assets/survival-kit",
+      "pack": "Kenney Survival Kit",
+      "version": "2.0",
+      "originalFiles": ["box-large.fbx", "barrel.fbx", "Textures/colormap.png"],
+      "localRoot": "Content/Models/Pickups",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-17",
+      "modifications": "Selected files only; box-large.fbx renamed health-crate.fbx and barrel.fbx renamed ammo-cache.fbx."
+    },
+    {
+      "source": "https://kenney.nl/assets/modular-space-kit",
+      "pack": "Kenney Modular Space Kit",
+      "version": "1.0",
+      "originalFiles": [
+        "gate.fbx",
+        "gate-door-window.fbx",
+        "template-wall-detail-a.fbx",
+        "cables.fbx",
+        "stairs-wide.fbx",
+        "Textures/colormap.png"
+      ],
+      "localRoot": "Content/Models/Arenas/OrbitalDepot",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-17",
+      "modifications": "Selected files only; models are placed as non-colliding visual dressing over the authored arena collision primitives."
+    },
+    {
+      "source": "https://kenney.nl/assets/space-station-kit",
+      "pack": "Kenney Space Station Kit",
+      "version": "1.0",
+      "originalFiles": [
+        "balcony-floor.fbx",
+        "balcony-rail.fbx",
+        "computer-screen.fbx",
+        "computer-wide.fbx",
+        "container-flat-open.fbx",
+        "container.fbx",
+        "container-tall.fbx",
+        "container-wide.fbx",
+        "display-wall-wide.fbx",
+        "floor-detail.fbx",
+        "pipe-bend.fbx",
+        "pipe-ring-colored.fbx",
+        "pipe.fbx",
+        "rail.fbx",
+        "structure-barrier.fbx",
+        "structure-barrier-high.fbx",
+        "table-display-planet.fbx",
+        "table-display-small.fbx",
+        "wall-banner.fbx",
+        "wall-door-wide.fbx",
+        "wall-pillar-banner.fbx",
+        "Textures/colormap.png"
+      ],
+      "localRoot": "Content/Models/Arenas/OrbitalDepot/Station",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected modular station models and their shared atlas only; models are data-driven visual dressing over authored collision primitives."
+    },
+    {
+      "source": "https://kenney.nl/assets/space-kit",
+      "pack": "Kenney Space Kit",
+      "version": "2.0",
+      "originalFiles": [
+        "craft_cargoA.fbx",
+        "machine_generatorLarge.fbx",
+        "machine_wirelessCable.fbx",
+        "satelliteDish_detailed.fbx"
+      ],
+      "localRoot": "Content/Models/Arenas/OrbitalDepot/SpaceKit",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected FBX files only; stock material colors retained. Models are non-colliding elevated silhouette and landmark dressing."
+    },
+    {
+      "source": "https://kenney.nl/assets/prototype-textures",
+      "pack": "Kenney Prototype Textures",
+      "version": "1.0",
+      "originalFiles": [
+        "PNG/Dark/texture_03.png",
+        "PNG/Dark/texture_05.png",
+        "PNG/Dark/texture_09.png"
+      ],
+      "localRoot": "Content/Textures/Arenas/OrbitalDepot",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected dark grid patterns renamed floor-grid.png, wall-diagonal.png, and platform-markers.png for their arena material roles."
+    },
+    {
+      "source": "https://kenney.nl/assets/ui-pack-sci-fi",
+      "pack": "Kenney UI Pack - Sci-Fi",
+      "version": "2.0",
+      "originalFiles": [
+        "PNG/Blue/Default/crosshair_color_a.png",
+        "PNG/Blue/Default/button_square_header_notch_rectangle_screws.png",
+        "PNG/Green/Default/button_square_header_notch_rectangle_screws.png"
+      ],
+      "localRoot": "Content/Textures/UI",
+      "license": "CC0 1.0",
+      "downloadDate": "2026-07-18",
+      "modifications": "Selected interface elements renamed menu-emblem.png, menu-button.png, and menu-button-selected.png; runtime tinting matches the arena palette."
+    }
+  ]
+}

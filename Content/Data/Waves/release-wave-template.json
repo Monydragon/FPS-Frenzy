@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "release-ten-plus-boss",
+  "difficulty": "Standard",
+  "interWaveDelaySeconds": 5.0,
+  "waves": [
+    { "id": "wave-01", "maximumConcurrentEnemies": 5, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 5 }] },
+    { "id": "wave-02", "maximumConcurrentEnemies": 6, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 7 }] },
+    { "id": "wave-03", "maximumConcurrentEnemies": 7, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 9 }] },
+    { "id": "wave-04", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 11 }] },
+    { "id": "wave-05", "maximumConcurrentEnemies": 8, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 13 }] },
+    { "id": "wave-06", "maximumConcurrentEnemies": 9, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 15 }] },
+    { "id": "wave-07", "maximumConcurrentEnemies": 10, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 17 }] },
+    { "id": "wave-08", "maximumConcurrentEnemies": 10, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 19 }] },
+    { "id": "wave-09", "maximumConcurrentEnemies": 11, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 21 }] },
+    { "id": "wave-10", "maximumConcurrentEnemies": 12, "spawnGroups": [{ "enemyId": "alien-grunt", "count": 24 }] }
+  ],
+  "bossWave": {
+    "id": "boss-wave",
+    "maximumConcurrentEnemies": 3,
+    "spawnIntervalSeconds": 0.75,
+    "spawnGroups": [
+      { "enemyId": "big-alien", "count": 1 },
+      { "enemyId": "alien-grunt", "count": 2 }
+    ]
+  }
+}

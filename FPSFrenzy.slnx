@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FpsFrenzy.Android/FpsFrenzy.Android.csproj" />
+    <Project Path="src/FpsFrenzy.Core/FpsFrenzy.Core.csproj" />
+    <Project Path="src/FpsFrenzy.Desktop/FpsFrenzy.Desktop.csproj" />
+    <Project Path="src/FpsFrenzy.Kni/FpsFrenzy.Kni.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FpsFrenzy.Content.Tests/FpsFrenzy.Content.Tests.csproj" />
+    <Project Path="tests/FpsFrenzy.Core.Tests/FpsFrenzy.Core.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/FpsFrenzy.Content.Pipeline/FpsFrenzy.Content.Pipeline.csproj" />
+  </Folder>
+</Solution>

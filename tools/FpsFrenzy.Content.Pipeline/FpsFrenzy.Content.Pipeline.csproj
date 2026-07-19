@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>FpsFrenzy.Content.Pipeline</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <OutputPath>$(MSBuildProjectDirectory)\bin\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="nkast.Xna.Framework.Content.Pipeline" />
+    <PackageReference Include="nkast.Xna.Framework.Content.Pipeline.Graphics" />
+  </ItemGroup>
+</Project>

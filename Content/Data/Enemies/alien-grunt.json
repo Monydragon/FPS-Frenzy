@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "alien-grunt",
+  "displayName": "Alien Grunt",
+  "modelAsset": "Models/Enemies/Alien",
+  "animationClips": {
+    "idle": "CharacterArmature|Idle",
+    "walk": "CharacterArmature|Walk",
+    "attack": "CharacterArmature|Bite_Front",
+    "hit": "CharacterArmature|HitRecieve",
+    "death": "CharacterArmature|Death"
+  },
+  "maxHealth": 65.0,
+  "moveSpeed": 3.4,
+  "colliderRadius": 0.55,
+  "colliderHeight": 1.4,
+  "attackRange": 1.35,
+  "attackDamage": 9.0,
+  "attackCooldownSeconds": 1.1,
+  "scoreValue": 100,
+  "tint": { "x": 0.95, "y": 0.82, "z": 0.24 },
+  "pathRefreshSeconds": 0.4,
+  "healthDropChance": 0.1,
+  "ammoDropChance": 0.18
+}

@@ -1,0 +1,76 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-content:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.203
+      - name: Restore
+        run: |
+          dotnet restore src/FpsFrenzy.Desktop/FpsFrenzy.Desktop.csproj
+          dotnet restore tests/FpsFrenzy.Core.Tests/FpsFrenzy.Core.Tests.csproj
+          dotnet restore tests/FpsFrenzy.Content.Tests/FpsFrenzy.Content.Tests.csproj
+      - name: Compile desktop and content
+        run: dotnet build src/FpsFrenzy.Desktop/FpsFrenzy.Desktop.csproj -c Release --no-restore
+      - name: Test
+        run: |
+          dotnet test tests/FpsFrenzy.Core.Tests/FpsFrenzy.Core.Tests.csproj -c Release --no-restore
+          dotnet test tests/FpsFrenzy.Content.Tests/FpsFrenzy.Content.Tests.csproj -c Release --no-restore
+
+  desktop-publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.203
+      - name: Publish self-contained desktop build
+        run: dotnet publish src/FpsFrenzy.Desktop/FpsFrenzy.Desktop.csproj -c Release -r ${{ matrix.rid }} --self-contained true -p:PublishAot=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fps-frenzy-${{ matrix.rid }}
+          path: src/FpsFrenzy.Desktop/bin/Release/net10.0/${{ matrix.rid }}/publish/
+
+  android-aab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.203
+      - name: Install Android workload
+        run: dotnet workload install android
+      - name: Build unsigned release AAB
+        run: dotnet build src/FpsFrenzy.Android/FpsFrenzy.Android.csproj -c Release -p:AndroidKeyStore=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fps-frenzy-android-aab
+          path: src/FpsFrenzy.Android/bin/Release/**/*.aab

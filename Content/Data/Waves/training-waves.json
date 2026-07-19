@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "training-waves",
+  "difficulty": "Standard",
+  "interWaveDelaySeconds": 4.0,
+  "waves": [
+    { "id": "wave-1", "maximumConcurrentEnemies": 3, "spawnIntervalSeconds": 0.45, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 3 } ] },
+    { "id": "wave-2", "maximumConcurrentEnemies": 5, "spawnIntervalSeconds": 0.4, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 5 } ] },
+    { "id": "wave-3", "maximumConcurrentEnemies": 8, "spawnIntervalSeconds": 0.35, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 8 } ] }
+  ],
+  "bossWave": null
+}

@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="BepuPhysics" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="nkast.Kni.Platform.Android.GL" Version="4.2.9001.1" />
+    <PackageVersion Include="nkast.Kni.Platform.SDL2.GL" Version="4.2.9001.1" />
+    <PackageVersion Include="nkast.Xna.Framework" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Audio" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Content" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Content.Pipeline" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Content.Pipeline.Audio" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Content.Pipeline.Builder" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Content.Pipeline.Graphics" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Devices" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Game" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Graphics" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Input" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Media" Version="4.2.9001" />
+    <PackageVersion Include="nkast.Xna.Framework.Storage" Version="4.2.9001" />
+  </ItemGroup>
+</Project>

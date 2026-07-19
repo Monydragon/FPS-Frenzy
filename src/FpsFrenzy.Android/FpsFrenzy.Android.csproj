@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FpsFrenzy.Android</RootNamespace>
+    <AssemblyName>FPSFrenzy.Android</AssemblyName>
+    <ApplicationId>com.kni.fpsfrenzy</ApplicationId>
+    <ApplicationTitle>FPS Frenzy</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <SupportedOSPlatformVersion>23.0</SupportedOSPlatformVersion>
+    <TargetPlatformVersion>36.0</TargetPlatformVersion>
+    <DefineConstants>$(DefineConstants);ANDROID</DefineConstants>
+    <KniPlatform>Android</KniPlatform>
+    <AndroidPackageFormat Condition="'$(Configuration)' == 'Release'">aab</AndroidPackageFormat>
+    <AndroidPackageFormat Condition="'$(Configuration)' != 'Release'">apk</AndroidPackageFormat>
+    <RuntimeIdentifiers Condition="'$(Configuration)' == 'Release'">android-arm64</RuntimeIdentifiers>
+    <AndroidStoreUncompressedFileExtensions>.m4a</AndroidStoreUncompressedFileExtensions>
+    <IsTrimmable>true</IsTrimmable>
+    <TrimMode>partial</TrimMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FpsFrenzy.Kni\FpsFrenzy.Kni.csproj" />
+    <ProjectReference Include="..\..\tools\FpsFrenzy.Content.Pipeline\FpsFrenzy.Content.Pipeline.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="nkast.Kni.Platform.Android.GL" />
+    <PackageReference Include="nkast.Xna.Framework.Content.Pipeline.Builder" />
+  </ItemGroup>
+  <ItemGroup>
+    <KniContentReference Include="..\..\Content\FpsFrenzyContent.mgcb">
+      <Link>Content\FpsFrenzyContent.mgcb</Link>
+    </KniContentReference>
+    <None Include="AndroidManifest.xml" />
+  </ItemGroup>
+</Project>

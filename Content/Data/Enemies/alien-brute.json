@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "alien-brute",
+  "displayName": "Alien Brute",
+  "modelAsset": "Models/Enemies/Orc",
+  "behavior": "Charger",
+  "animationClips": {
+    "idle": "CharacterArmature|Idle",
+    "walk": "CharacterArmature|Walk",
+    "attack": "CharacterArmature|Punch",
+    "hit": "CharacterArmature|HitReact",
+    "death": "CharacterArmature|Death"
+  },
+  "maxHealth": 150.0,
+  "moveSpeed": 2.4,
+  "colliderRadius": 0.78,
+  "colliderHeight": 1.85,
+  "attackRange": 1.7,
+  "attackDamage": 20.0,
+  "attackCooldownSeconds": 1.8,
+  "chargeSpeed": 11.5,
+  "chargeRange": 10.5,
+  "chargeWindupSeconds": 0.9,
+  "chargeDurationSeconds": 0.7,
+  "chargeCooldownSeconds": 5.2,
+  "renderScale": 1.28,
+  "tint": { "x": 1.0, "y": 0.48, "z": 0.22 },
+  "scoreValue": 260,
+  "pathRefreshSeconds": 0.5,
+  "healthDropChance": 0.16,
+  "ammoDropChance": 0.1
+}
