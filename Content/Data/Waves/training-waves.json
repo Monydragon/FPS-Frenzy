@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "training-waves",
-  "difficulty": "Standard",
+  "difficulty": "Normal",
   "interWaveDelaySeconds": 4.0,
   "waves": [
     { "id": "wave-1", "maximumConcurrentEnemies": 3, "spawnIntervalSeconds": 0.45, "spawnGroups": [ { "enemyId": "alien-grunt", "count": 3 } ] },

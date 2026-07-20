@@ -54,12 +54,13 @@ public sealed class RenderCaptureService
     public void UpdateInput()
     {
         KeyboardState keyboard = Keyboard.GetState();
-        if (keyboard.IsKeyDown(Keys.F12) && !_previousKeyboard.IsKeyDown(Keys.F12))
+        bool captureModifier = keyboard.IsKeyDown(Keys.LeftShift) || keyboard.IsKeyDown(Keys.RightShift);
+        if (captureModifier && keyboard.IsKeyDown(Keys.F12) && !_previousKeyboard.IsKeyDown(Keys.F12))
         {
             Queue($"manual-{++_manualCaptureIndex:00}");
         }
 
-        if (keyboard.IsKeyDown(Keys.F11) && !_previousKeyboard.IsKeyDown(Keys.F11))
+        if (captureModifier && keyboard.IsKeyDown(Keys.F11) && !_previousKeyboard.IsKeyDown(Keys.F11))
         {
             if (IsRecording)
             {

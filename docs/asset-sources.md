@@ -6,11 +6,34 @@ Binary source art is tracked by Git LFS. Only files selected for the release ros
 
 - Source: https://kenney.nl/assets/blaster-kit
 - License: CC0 1.0 Universal
-- Downloaded: 2026-07-16
-- Selected originals: `blaster-a.fbx`, `blaster-c.fbx`, `blaster-f.fbx`, `blaster-j.fbx`, `blaster-n.fbx`, `blaster-r.fbx`, and the shared `Textures/colormap.png`
+- Downloaded: 2026-07-19
+- Selected assembled originals: `blaster-a.fbx` through `blaster-r.fbx`
+- Retained modular sources: `clip-large.fbx`, `clip-small.fbx`, `grenade-a.fbx`, `grenade-b.fbx`, `scope-large-a.fbx`, `scope-large-b.fbx`, `scope-small.fbx`, `silencer-larger.fbx`, and `silencer-small.fbx`
+- Canonical source root: `Content/ThirdParty/Kenney-Blaster-Kit-2.1/FBX`
 - Local root: `Content/Models/Weapons`
-- Modification: selected files only; no mesh edits. The shared texture was retained at the relative path expected by the FBX files.
-- Intended mapping: Pulse Sidearm (a), Burst Carbine (c), Scatter Blaster (f), Beam Rifle (j), Plasma Launcher (n), Arc Cannon (r).
+- Modification: all 18 assembled blasters are optimized runtime models; nine modular parts are retained as provenance/source material but are not composed at runtime. JSON supplies canonical orientation, target span, muzzle/grip anchors, hip/ADS placement, color treatment, and procedural animation calibration. Stock meshes and material colors are unchanged.
+
+## Quaternius Sci-Fi Modular Gun Pack
+
+- Source: https://quaternius.com/packs/scifimodularguns.html
+- License: CC0 1.0 Universal
+- Pack release: November 2021
+- Downloaded: 2026-07-19 from the publisher's public Google Drive folder
+- Selected originals: all 20 assembled FBX files—six assault rifles, two crossbows, five grenade/projector forms, three pistols, two SMGs, and three sniper silhouettes
+- Canonical source root: `Content/ThirdParty/Quaternius-Sci-Fi-Modular-Gun-Pack/FBX`
+- Runtime root: `Content/Models/Weapons/Quaternius`
+- Modification: selected assembled models only; meshes and materials are unchanged. The 50 JSON weapon bases share the 38 retained runtime silhouettes where appropriate and author behavioral sidegrades independently of visual geometry.
+
+## Quaternius Animated Robot Pack
+
+- Source: https://quaternius.com/packs/animatedrobot.html
+- License: CC0 1.0 Universal
+- Pack release: October 2018
+- Downloaded: 2026-07-19 from the publisher's public Google Drive folder
+- Selected original: `Robot.fbx`
+- Canonical source root: `Content/ThirdParty/Quaternius-Animated-Robot-Pack`
+- Runtime root: `Content/Models/Player`
+- Modification: the project conversion script creates the static loadout mannequin used by Character/Loadout presentation; the retained publisher source and generated output names are listed in the machine-readable manifest.
 
 ## Quaternius Ultimate Monsters
 

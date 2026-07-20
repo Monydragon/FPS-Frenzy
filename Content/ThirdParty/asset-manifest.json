@@ -5,12 +5,92 @@
       "source": "https://kenney.nl/assets/blaster-kit",
       "pack": "Kenney Blaster Kit",
       "version": "2.1",
-      "originalFiles": ["blaster-a.fbx", "blaster-c.fbx", "blaster-f.fbx", "blaster-j.fbx", "blaster-n.fbx", "blaster-r.fbx", "Textures/colormap.png"],
+      "originalFiles": [
+        "Models/FBX format/blaster-a.fbx", "Models/FBX format/blaster-b.fbx",
+        "Models/FBX format/blaster-c.fbx", "Models/FBX format/blaster-d.fbx",
+        "Models/FBX format/blaster-e.fbx", "Models/FBX format/blaster-f.fbx",
+        "Models/FBX format/blaster-g.fbx", "Models/FBX format/blaster-h.fbx",
+        "Models/FBX format/blaster-i.fbx", "Models/FBX format/blaster-j.fbx",
+        "Models/FBX format/blaster-k.fbx", "Models/FBX format/blaster-l.fbx",
+        "Models/FBX format/blaster-m.fbx", "Models/FBX format/blaster-n.fbx",
+        "Models/FBX format/blaster-o.fbx", "Models/FBX format/blaster-p.fbx",
+        "Models/FBX format/blaster-q.fbx", "Models/FBX format/blaster-r.fbx",
+        "Models/FBX format/clip-large.fbx", "Models/FBX format/clip-small.fbx",
+        "Models/FBX format/grenade-a.fbx", "Models/FBX format/grenade-b.fbx",
+        "Models/FBX format/scope-large-a.fbx", "Models/FBX format/scope-large-b.fbx",
+        "Models/FBX format/scope-small.fbx", "Models/FBX format/silencer-larger.fbx",
+        "Models/FBX format/silencer-small.fbx", "Models/Textures/variation-a.png"
+      ],
+      "retainedSourceRoot": "Content/ThirdParty/Kenney-Blaster-Kit-2.1/FBX",
+      "retainedSourceFiles": [
+        "blaster-b.fbx", "blaster-d.fbx", "blaster-e.fbx", "blaster-g.fbx",
+        "blaster-h.fbx", "blaster-i.fbx", "blaster-k.fbx", "blaster-l.fbx",
+        "blaster-m.fbx", "blaster-o.fbx", "blaster-p.fbx", "blaster-q.fbx",
+        "clip-large.fbx", "clip-small.fbx", "grenade-a.fbx", "grenade-b.fbx",
+        "scope-large-a.fbx", "scope-large-b.fbx", "scope-small.fbx",
+        "silencer-larger.fbx", "silencer-small.fbx"
+      ],
       "localRoot": "Content/Models/Weapons",
-      "localFiles": ["blaster-a.fbx", "blaster-c.fbx", "blaster-f.fbx", "blaster-j.fbx", "blaster-n.fbx", "blaster-r.fbx", "Textures/colormap.png"],
+      "localFiles": [
+        "blaster-a.fbx", "blaster-b.fbx", "blaster-c.fbx", "blaster-d.fbx",
+        "blaster-e.fbx", "blaster-f.fbx", "blaster-g.fbx", "blaster-h.fbx",
+        "blaster-i.fbx", "blaster-j.fbx", "blaster-k.fbx", "blaster-l.fbx",
+        "blaster-m.fbx", "blaster-n.fbx", "blaster-o.fbx", "blaster-p.fbx",
+        "blaster-q.fbx", "blaster-r.fbx", "Textures/colormap.png"
+      ],
       "license": "CC0 1.0",
-      "downloadDate": "2026-07-16",
-      "modifications": "Selected files only; shared texture moved beside the selected FBX files."
+      "downloadDate": "2026-07-19",
+      "modifications": "Selected all 18 assembled blasters for runtime use and retained nine additional modular scope, silencer, magazine, and grenade parts as CC0 source material. Runtime files keep stock meshes and material colors; weapon JSON supplies normalized orientation, target span, grip, muzzle, hip/ADS, and procedural animation calibration. No mesh is assembled from separate parts at runtime."
+    },
+    {
+      "source": "https://quaternius.com/packs/scifimodularguns.html",
+      "sourceFolder": "https://drive.google.com/drive/folders/1P5j8xZyIEmZGHjGYmIgYCev9SVmB-IHC",
+      "pack": "Quaternius Sci-Fi Modular Gun Pack",
+      "version": "November 2021",
+      "originalFiles": [
+        "Guns/FBX/AR_1.fbx", "Guns/FBX/AR_2.fbx", "Guns/FBX/AR_3.fbx",
+        "Guns/FBX/AR_4.fbx", "Guns/FBX/AR_5.fbx", "Guns/FBX/AR_6.fbx",
+        "Guns/FBX/Crossbow_1.fbx", "Guns/FBX/Crossbow_2.fbx",
+        "Guns/FBX/Grenade.fbx", "Guns/FBX/Grenade_1.fbx", "Guns/FBX/Grenade_2.fbx",
+        "Guns/FBX/Grenade_3.fbx", "Guns/FBX/Pistol_1.fbx", "Guns/FBX/Pistol_2.fbx",
+        "Guns/FBX/Pistol_3.fbx", "Guns/FBX/SMG_1.fbx", "Guns/FBX/SMG_2.fbx",
+        "Guns/FBX/Sniper_1.fbx", "Guns/FBX/Sniper_2.fbx", "Guns/FBX/Sniper_3.fbx"
+      ],
+      "retainedSourceRoot": "Content/ThirdParty/Quaternius-Sci-Fi-Modular-Gun-Pack/FBX",
+      "localRoot": "Content/Models/Weapons/Quaternius",
+      "localFiles": [
+        "AR_1.fbx", "AR_2.fbx", "AR_3.fbx", "AR_4.fbx", "AR_5.fbx", "AR_6.fbx",
+        "Crossbow_1.fbx", "Crossbow_2.fbx", "Grenade.fbx", "Grenade_1.fbx",
+        "Grenade_2.fbx", "Grenade_3.fbx", "Pistol_1.fbx", "Pistol_2.fbx",
+        "Pistol_3.fbx", "SMG_1.fbx", "SMG_2.fbx", "Sniper_1.fbx", "Sniper_2.fbx",
+        "Sniper_3.fbx"
+      ],
+      "license": "CC0 1.0",
+      "licenseFile": "Content/ThirdParty/Quaternius-Sci-Fi-Modular-Gun-Pack/LICENSE.txt",
+      "downloadDate": "2026-07-19",
+      "modifications": "Selected all 20 assembled FBX weapons. The 50 behavioral weapon bases map across these cohesive assemblies and the 18 Kenney blasters; no mesh or material edits were made. Duplicate visual assignments are declared by JSON where the retained source collection has fewer assembled silhouettes than gameplay bases. Runtime calibration records canonical axes, camera-away muzzle orientation, grips, hip/ADS placement, and procedural animation tuning."
+    },
+    {
+      "source": "https://quaternius.com/packs/animatedrobot.html",
+      "sourceFolder": "https://drive.google.com/drive/folders/18MU0RtRu9G6SU6uSZ_zMQFmVkRlB4zH5",
+      "pack": "Quaternius Animated Robot Pack",
+      "version": "October 2018",
+      "originalFiles": ["FBX/Robot.fbx"],
+      "retainedSourceRoot": "Content/ThirdParty/Quaternius-Animated-Robot-Pack",
+      "retainedSourceFiles": ["Robot.fbx"],
+      "localRoot": "Content/Models/Player",
+      "localFiles": ["operator-robot.assbin"],
+      "license": "CC0 1.0",
+      "licenseFile": "Content/ThirdParty/Quaternius-Animated-Robot-Pack/LICENSE.txt",
+      "downloadDate": "2026-07-19",
+      "conversion": {
+        "script": "tools/Convert-StaticMannequin.ps1",
+        "tool": "AssimpNet 5.0.0 from nkast.Xna.Framework.Content.Pipeline.Builder 4.2.9001",
+        "input": "animated FBX",
+        "output": "assbin",
+        "options": ["PreTransformVertices bind-pose bake", "remove bone weights", "remove animation tracks"]
+      },
+      "modifications": "Selected the animated FBX and retained it unchanged as provenance. The rotatable menu mannequin is a derived static bind-pose model because the stock Reach model processor rejects the source's multiple skeleton roots; gameplay mesh proportions and material colors are retained."
     },
     {
       "source": "https://quaternius.com/packs/ultimatemonsters.html",

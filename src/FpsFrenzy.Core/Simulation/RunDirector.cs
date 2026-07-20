@@ -6,6 +6,7 @@ public enum RunPhase
 {
     LegacyWaves,
     EncounterActive,
+    RecoveryLoot,
     RewardSelection,
     BossActive,
     Victory,
@@ -16,8 +17,15 @@ public sealed record RunConfiguration
 {
     public string ArenaId { get; init; } = "training-ring";
     public int Seed { get; init; } = 1337;
-    public DifficultyMode Difficulty { get; init; } = DifficultyMode.Standard;
+    public DifficultyMode Difficulty { get; init; } = DifficultyMode.Normal;
     public string StartingWeaponId { get; init; } = "pulse-sidearm";
+    public ThreatTier ThreatTier { get; init; } = ThreatTier.TierI;
+    public EquipmentLoadout? StartingEquipment { get; init; }
+    public WeaponQuickbarLoadout? StartingWeaponQuickbar { get; init; }
+    public WeaponSetLoadout? StartingWeaponSetA { get; init; }
+    public WeaponSetLoadout? StartingWeaponSetB { get; init; }
+    public IReadOnlyList<EquipmentInstance>? StartingStash { get; init; }
+    public PlayerProgressionState? Progression { get; init; }
     public bool GodModeEnabled { get; init; }
     public bool IsFirstRun { get; init; }
     public IReadOnlyCollection<string>? UnlockedUpgradeIds { get; init; }
@@ -33,6 +41,7 @@ public sealed record WeaponCheckpointState
     public float Heat { get; init; }
     public float FireCooldownSeconds { get; init; }
     public float ReloadRemainingSeconds { get; init; }
+    public float ReloadDurationSeconds { get; init; }
     public int BurstShotsRemaining { get; init; }
     public bool IsOverheated { get; init; }
     public float MagazineConsumptionAccumulator { get; init; }
@@ -40,13 +49,15 @@ public sealed record WeaponCheckpointState
 
 public sealed record RunCheckpoint
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 5;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public int Seed { get; init; }
     public required string ArenaId { get; init; }
     public int NextEncounterIndex { get; init; }
     public required string StartingWeaponId { get; init; }
+    public ThreatTier ThreatTier { get; init; } = ThreatTier.TierI;
+    public DifficultyMode Difficulty { get; init; } = DifficultyMode.Normal;
     public bool IsFirstRun { get; init; }
     public bool GodModeUsed { get; init; }
     public List<string> OwnedUpgradeIds { get; init; } = [];
@@ -72,6 +83,33 @@ public sealed record RunCheckpoint
     public int CompletedEliteEncounters { get; init; }
     public EncounterObjectiveType? LastCompletedEncounterObjective { get; init; }
     public float LastCompletedEncounterMetric { get; init; }
+    public EquipmentLoadout EquipmentLoadout { get; init; } = new();
+    public List<EquipmentInstance> EquipmentItems { get; init; } = [];
+    public Dictionary<EquipmentSlot, WeaponCheckpointState> HandWeaponStates { get; init; } = [];
+    public WeaponSetLoadout WeaponSetA { get; init; } = new();
+    public WeaponSetLoadout WeaponSetB { get; init; } = new();
+    public int ActiveWeaponSetIndex { get; init; }
+    public WeaponQuickbarLoadout WeaponQuickbar { get; init; } = new();
+    public int ActiveWeaponSlotIndex { get; init; }
+    public Dictionary<int, WeaponSetCheckpointState> WeaponSetStates { get; init; } = [];
+    public List<EquipmentInstance> IssuedItemInstances { get; init; } = [];
+    public PendingRunProgression PendingProgression { get; init; } = new();
+    public RecoveryCache RecoveryCache { get; init; } = new();
+    public int LootDropSerial { get; init; }
+    public Dictionary<string, float> AbilityCooldowns { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public int RunExperienceEarned { get; init; }
+    public int RunLevelsGained { get; init; }
+    public Dictionary<WeaponFamily, int> RunProficiencyExperience { get; init; } = [];
+    public List<string> RunAbilitiesMastered { get; init; } = [];
+    public List<string> RunCollectedItemIds { get; init; } = [];
+    public Dictionary<ItemRarity, int> RunRarityTotals { get; init; } = [];
+    public int RunHighestItemPower { get; init; }
+}
+
+public sealed record WeaponSetCheckpointState
+{
+    public WeaponCheckpointState? RightHand { get; init; }
+    public WeaponCheckpointState? LeftHand { get; init; }
 }
 
 public sealed record UpgradeOffer(int EncounterNumber, IReadOnlyList<UpgradeDefinition> Choices);
@@ -85,16 +123,36 @@ public sealed record RunSnapshot(
     string? SectorId,
     EncounterObjectiveType? ObjectiveType,
     IReadOnlyList<string> OwnedUpgradeIds,
-    bool GodModeUsed);
+    bool GodModeUsed)
+{
+    public ThreatTier ThreatTier { get; init; } = ThreatTier.TierI;
+    public DifficultyMode Difficulty { get; init; } = DifficultyMode.Normal;
+    public int ActiveWeaponSetIndex { get; init; }
+    public int ActiveWeaponSlotIndex { get; init; }
+    public int PlayerLevel { get; init; } = 1;
+    public int PlayerExperience { get; init; }
+    public int PlayerLevelsGained { get; init; }
+    public int ExperienceGained { get; init; }
+    public Dictionary<WeaponFamily, int> ProficiencyRanks { get; init; } = [];
+    public Dictionary<WeaponFamily, int> ProficiencyExperienceGained { get; init; } = [];
+    public List<string> AbilitiesMastered { get; init; } = [];
+    public Dictionary<ItemRarity, int> RarityTotals { get; init; } = [];
+    public int EquipmentCollected { get; init; }
+    public int HighestItemPower { get; init; }
+}
 
 public sealed class RunModifiers
 {
     private readonly Dictionary<string, UpgradeDefinition> _definitions;
+    private readonly IReadOnlyDictionary<string, WeaponDefinition> _weapons;
     private readonly HashSet<string> _ownedUpgradeIds = new(StringComparer.OrdinalIgnoreCase);
 
-    public RunModifiers(IEnumerable<UpgradeDefinition> definitions)
+    public RunModifiers(
+        IEnumerable<UpgradeDefinition> definitions,
+        IReadOnlyDictionary<string, WeaponDefinition>? weapons = null)
     {
         _definitions = definitions.ToDictionary(definition => definition.Id, StringComparer.OrdinalIgnoreCase);
+        _weapons = weapons ?? new Dictionary<string, WeaponDefinition>(StringComparer.OrdinalIgnoreCase);
     }
 
     public IReadOnlySet<string> OwnedUpgradeIds => _ownedUpgradeIds;
@@ -159,16 +217,21 @@ public sealed class RunModifiers
     private float Sum(UpgradeEffectType type) => Effects(type).Sum(effect => effect.Value);
     private float Product(UpgradeEffectType type) => Effects(type).Aggregate(1f, (value, effect) => value * effect.Value);
     private float SumForWeapon(UpgradeEffectType type, string weaponId) => Effects(type)
-        .Where(effect => string.Equals(effect.WeaponId, weaponId, StringComparison.OrdinalIgnoreCase))
+        .Where(effect => MatchesWeapon(effect, weaponId))
         .Sum(effect => effect.Value);
     private float ProductForWeapon(UpgradeEffectType type, string weaponId) => Effects(type)
-        .Where(effect => string.Equals(effect.WeaponId, weaponId, StringComparison.OrdinalIgnoreCase))
+        .Where(effect => MatchesWeapon(effect, weaponId))
         .Aggregate(1f, (value, effect) => value * effect.Value);
 
     private IEnumerable<UpgradeEffectDefinition> Effects(UpgradeEffectType type) => _ownedUpgradeIds
         .Select(id => _definitions[id])
         .SelectMany(definition => definition.Effects)
         .Where(effect => effect.Type == type);
+
+    private bool MatchesWeapon(UpgradeEffectDefinition effect, string weaponId) =>
+        string.Equals(effect.WeaponId, weaponId, StringComparison.OrdinalIgnoreCase) ||
+        (effect.WeaponFamily != WeaponFamily.None && _weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) &&
+            weapon.Family == effect.WeaponFamily);
 }
 
 public sealed class RunDirector
@@ -185,7 +248,8 @@ public sealed class RunDirector
         IEnumerable<UpgradeDefinition> upgrades,
         IEnumerable<string>? unlockedUpgradeIds = null,
         RunCheckpoint? checkpoint = null,
-        bool isFirstRun = false)
+        bool isFirstRun = false,
+        IReadOnlyDictionary<string, WeaponDefinition>? weapons = null)
     {
         if (availableSectors.Count < 3)
         {
@@ -197,7 +261,7 @@ public sealed class RunDirector
         _unlockedUpgradeIds = new HashSet<string>(
             unlockedUpgradeIds ?? StandardUpgradeCatalog.InitiallyUnlockedIds,
             StringComparer.OrdinalIgnoreCase);
-        Modifiers = new RunModifiers(_upgrades.Values);
+        Modifiers = new RunModifiers(_upgrades.Values, weapons);
         int restoredEncounterIndex = Math.Clamp(
             checkpoint?.NextEncounterIndex ?? 0,
             0,
@@ -258,6 +322,17 @@ public sealed class RunDirector
         }
 
         CurrentOffer = new UpgradeOffer(CurrentEncounterIndex + 1, choices);
+        Phase = RunPhase.RecoveryLoot;
+        return CurrentOffer;
+    }
+
+    public UpgradeOffer CompleteRecovery()
+    {
+        if (Phase != RunPhase.RecoveryLoot || CurrentOffer is null)
+        {
+            throw new InvalidOperationException("There is no active recovery stage.");
+        }
+
         Phase = RunPhase.RewardSelection;
         return CurrentOffer;
     }

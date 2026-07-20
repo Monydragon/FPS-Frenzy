@@ -7,6 +7,7 @@ public static class ContentValidator
         ["idle", "locomotion", "windup", "activeAttack", "recovery", "hitReaction", "death"];
     private static readonly string[] ReleaseWeaponIds =
         ["pulse-sidearm", "burst-carbine", "scatter-blaster", "beam-rifle", "plasma-launcher", "arc-cannon"];
+    private static readonly int[] WeaponBaseTiers = [1, 2, 3, 4, 5];
     private static readonly HashSet<UpgradeEffectType> WeaponScopedUpgradeEffects =
     [
         UpgradeEffectType.WeaponDamage,
@@ -35,6 +36,59 @@ public static class ContentValidator
             Require(weapon.FireIntervalSeconds > 0, $"Weapon '{weapon.Id}' fire interval must be positive.", errors);
             Require(weapon.HipFieldOfViewDegrees > weapon.AdsFieldOfViewDegrees,
                 $"Weapon '{weapon.Id}' ADS FOV must be lower than hip FOV.", errors);
+            Require(IsFinite(weapon.ViewModelHipOffset) && IsFinite(weapon.ViewModelAdsOffset) &&
+                float.IsFinite(weapon.ViewModelTargetSpan) && weapon.ViewModelTargetSpan is >= 0.1f and <= 1.5f &&
+                float.IsFinite(weapon.ViewModelYawDegrees) && float.IsFinite(weapon.ViewModelPitchDegrees) &&
+                float.IsFinite(weapon.ViewModelRollDegrees),
+                $"Weapon '{weapon.Id}' has invalid first-person visual calibration.", errors);
+            Require(IsFinite(weapon.Visual.ForwardAxis) && IsFinite(weapon.Visual.UpAxis) &&
+                IsFinite(weapon.Visual.PivotOffset) && IsFinite(weapon.Visual.BarrelTip) &&
+                IsFinite(weapon.Visual.RearAnchor) && IsFinite(weapon.Visual.SightAnchor) &&
+                IsFinite(weapon.Visual.MuzzleOffset) && IsFinite(weapon.Visual.RightGripOffset) &&
+                IsFinite(weapon.Visual.LeftGripOffset) && IsFinite(weapon.Visual.ForegripOffset) &&
+                float.IsFinite(weapon.Visual.SourceSpanScale) &&
+                weapon.Visual.SourceSpanScale is >= 0.1f and <= 4f &&
+                float.IsFinite(weapon.Visual.AdsTargetSpanScale) &&
+                weapon.Visual.AdsTargetSpanScale is >= 0.25f and <= 1f &&
+                MathF.Abs(weapon.Visual.ForwardAxis.Length() - 1f) <= 0.01f &&
+                MathF.Abs(weapon.Visual.UpAxis.Length() - 1f) <= 0.01f &&
+                MathF.Abs(System.Numerics.Vector3.Dot(
+                    weapon.Visual.ForwardAxis, weapon.Visual.UpAxis)) <= 0.01f &&
+                System.Numerics.Vector3.Dot(
+                    weapon.Visual.MuzzleOffset, weapon.Visual.ForwardAxis) > 0f &&
+                System.Numerics.Vector3.Dot(
+                    weapon.Visual.BarrelTip - weapon.Visual.RearAnchor, weapon.Visual.ForwardAxis) > 0.1f,
+                $"Weapon '{weapon.Id}' has invalid canonical axes, grip anchors, or muzzle transform.", errors);
+            WeaponAnimationDefinition animation = weapon.Visual.Animation;
+            Require(animation is not null && float.IsFinite(animation.EquipSeconds) &&
+                animation.EquipSeconds is >= 0.05f and <= 2f &&
+                float.IsFinite(animation.FireKickSeconds) && animation.FireKickSeconds is >= 0.05f and <= 1f &&
+                float.IsFinite(animation.RecoilDistance) && animation.RecoilDistance is >= 0f and <= 0.25f &&
+                float.IsFinite(animation.RecoilPitchDegrees) && MathF.Abs(animation.RecoilPitchDegrees) <= 30f &&
+                float.IsFinite(animation.ReloadPitchDegrees) && MathF.Abs(animation.ReloadPitchDegrees) <= 90f &&
+                float.IsFinite(animation.ReloadRollDegrees) && MathF.Abs(animation.ReloadRollDegrees) <= 120f &&
+                float.IsFinite(animation.ReloadDropDistance) && animation.ReloadDropDistance is >= 0f and <= 0.5f &&
+                float.IsFinite(animation.BobScale) && animation.BobScale is >= 0f and <= 3f &&
+                float.IsFinite(animation.SwayScale) && animation.SwayScale is >= 0f and <= 3f,
+                $"Weapon '{weapon.Id}' has invalid procedural animation tuning.", errors);
+            System.Numerics.Matrix4x4 presentationRotation =
+                System.Numerics.Matrix4x4.CreateFromYawPitchRoll(
+                    weapon.ViewModelYawDegrees * (MathF.PI / 180f),
+                    weapon.ViewModelPitchDegrees * (MathF.PI / 180f),
+                    weapon.ViewModelRollDegrees * (MathF.PI / 180f));
+            System.Numerics.Vector3 muzzleCameraDirection = System.Numerics.Vector3.TransformNormal(
+                weapon.Visual.ForwardAxis, presentationRotation);
+            System.Numerics.Vector3 cameraBarrelTip = System.Numerics.Vector3.Transform(
+                weapon.Visual.BarrelTip, presentationRotation);
+            System.Numerics.Vector3 cameraRearAnchor = System.Numerics.Vector3.Transform(
+                weapon.Visual.RearAnchor, presentationRotation);
+            Require(System.Numerics.Vector3.Dot(
+                    System.Numerics.Vector3.Normalize(muzzleCameraDirection),
+                    -System.Numerics.Vector3.UnitZ) >= MathF.Cos(MathF.PI / 180f),
+                $"Weapon '{weapon.Id}' first-person muzzle must align within one degree of the aim ray.", errors);
+            Require(cameraBarrelTip.Z < cameraRearAnchor.Z - 0.05f &&
+                MathF.Abs(weapon.ViewModelAdsOffset.X) <= 0.15f,
+                $"Weapon '{weapon.Id}' barrel or ADS sight is not calibrated toward the target.", errors);
             Require(!string.IsNullOrWhiteSpace(weapon.ModelAsset), $"Weapon '{weapon.Id}' needs a model asset.", errors);
             Require(weapon.PelletCount > 0, $"Weapon '{weapon.Id}' pellet count must be positive.", errors);
             Require(weapon.MinimumDamageMultiplier is > 0f and <= 1f,
@@ -91,6 +145,11 @@ public static class ContentValidator
                 $"Enemy '{enemy.Id}' threat weight must be positive.", errors);
             if (enemy.SchemaVersion >= 2)
             {
+                Require(enemy.WeakPoints.Count > 0 && enemy.WeakPoints.All(weakPoint =>
+                        !string.IsNullOrWhiteSpace(weakPoint.Id) && IsFinite(weakPoint.Offset) &&
+                        float.IsFinite(weakPoint.Radius) && weakPoint.Radius > 0f &&
+                        weakPoint.Offset.Y >= 0f && weakPoint.Offset.Y <= enemy.ColliderHeight + 0.5f),
+                    $"Release enemy '{enemy.Id}' needs valid authored head/core weak points.", errors);
                 Require(!string.IsNullOrWhiteSpace(enemy.Visual.AlbedoAsset),
                     $"Release enemy '{enemy.Id}' needs an explicitly authored albedo asset.", errors);
                 Require(enemy.Visual.TextureSampling == TextureSamplingMode.LinearMipmapped,
@@ -208,10 +267,10 @@ public static class ContentValidator
 
         foreach (WaveSetDefinition waveSet in catalog.WaveSets.Values)
         {
-            Require(waveSet.SchemaVersion is 1 or 2,
+            Require(waveSet.SchemaVersion is 1 or 2 or 3,
                 $"Wave set '{waveSet.Id}' has an unsupported schema version.", errors);
-            Require(waveSet.Difficulty == DifficultyMode.Standard,
-                $"Wave set '{waveSet.Id}' must identify the shipped Standard difficulty.", errors);
+            Require(DifficultyCatalog.Normalize(waveSet.Difficulty) == DifficultyMode.Normal,
+                $"Wave set '{waveSet.Id}' must identify the shipped Normal difficulty.", errors);
             Require(waveSet.InterWaveDelaySeconds >= 0f,
                 $"Wave set '{waveSet.Id}' has a negative inter-wave delay.", errors);
             Require(waveSet.Waves.Count > 0, $"Wave set '{waveSet.Id}' has no waves.", errors);
@@ -239,7 +298,7 @@ public static class ContentValidator
 
         foreach (ArenaDefinition arena in catalog.Arenas.Values)
         {
-            Require(arena.SchemaVersion is 1 or 2, $"Arena '{arena.Id}' has an unsupported schema version.", errors);
+            Require(arena.SchemaVersion is 1 or 2 or 3, $"Arena '{arena.Id}' has an unsupported schema version.", errors);
             Require(catalog.WaveSets.ContainsKey(arena.WaveSetId), $"Arena '{arena.Id}' references missing wave set '{arena.WaveSetId}'.", errors);
             if (catalog.WaveSets.TryGetValue(arena.WaveSetId, out WaveSetDefinition? arenaWaveSet))
             {
@@ -273,6 +332,21 @@ public static class ContentValidator
                 Require(arena.Sectors.Select(sector => sector.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() ==
                     arena.Sectors.Count,
                     $"Release arena '{arena.Id}' has duplicate sector ids.", errors);
+            }
+            if (arena.SchemaVersion >= 3)
+            {
+                Require(arena.TraversalMode == ArenaTraversalMode.OpenArena,
+                    $"Release arena '{arena.Id}' schema v3 must use open-arena traversal.", errors);
+                Require(arena.Primitives.Count(primitive => primitive.CollisionRole == ArenaCollisionRole.Floor) == 1,
+                    $"Open arena '{arena.Id}' needs exactly one colliding floor.", errors);
+                Require(arena.Primitives.Count(primitive => primitive.CollisionRole == ArenaCollisionRole.OuterWall) == 4,
+                    $"Open arena '{arena.Id}' needs four visible outer-wall colliders.", errors);
+                Require(arena.Primitives.Where(primitive => primitive.HasCollision)
+                    .All(primitive => primitive.CollisionRole is ArenaCollisionRole.Floor or ArenaCollisionRole.OuterWall),
+                    $"Open arena '{arena.Id}' cannot contain interior or unclassified colliders.", errors);
+                Require(arena.Primitives.Where(primitive => primitive.CollisionRole != ArenaCollisionRole.None)
+                    .All(primitive => primitive.HasCollision && primitive.IsVisible),
+                    $"Open arena '{arena.Id}' collision roles must be visible and colliding.", errors);
             }
             for (int index = 0; index < arena.EnemySpawns.Count; index++)
             {
@@ -360,7 +434,111 @@ public static class ContentValidator
                 {
                     Require(effect.WeaponId is not null && catalog.Weapons.ContainsKey(effect.WeaponId),
                         $"Upgrade '{upgrade.Id}' has a weapon-scoped effect without a valid weapon.", errors);
+                    Require(effect.WeaponFamily != WeaponFamily.None,
+                        $"Upgrade '{upgrade.Id}' must target a weapon-family tag.", errors);
                 }
+            }
+        }
+
+        foreach (EquipmentBaseDefinition equipment in catalog.EquipmentBases.Values)
+        {
+            Require(equipment.SchemaVersion == 1,
+                $"Equipment base '{equipment.Id}' has an unsupported schema version.", errors);
+            Require(!string.IsNullOrWhiteSpace(equipment.DisplayName) &&
+                !string.IsNullOrWhiteSpace(equipment.Archetype),
+                $"Equipment base '{equipment.Id}' needs player-facing identity.", errors);
+            Require(equipment.CompatibleSlots.Count > 0 && equipment.CompatibleSlots.Distinct().Count() ==
+                equipment.CompatibleSlots.Count,
+                $"Equipment base '{equipment.Id}' needs unique compatible slots.", errors);
+            Require(!string.IsNullOrWhiteSpace(equipment.ModelAsset) &&
+                !string.IsNullOrWhiteSpace(equipment.IconAsset),
+                $"Equipment base '{equipment.Id}' needs a model and icon.", errors);
+            Require(equipment.BaseArmor >= 0f && equipment.BaseMaximumHealth >= 0f,
+                $"Equipment base '{equipment.Id}' has invalid base stats.", errors);
+            Require(equipment.TaughtAbilityId is not null &&
+                catalog.Abilities.ContainsKey(equipment.TaughtAbilityId),
+                $"Equipment base '{equipment.Id}' teaches a missing ability.", errors);
+        }
+
+        foreach (EquipmentAbilityDefinition ability in catalog.Abilities.Values)
+        {
+            Require(ability.SchemaVersion == 1 && !string.IsNullOrWhiteSpace(ability.DisplayName) &&
+                !string.IsNullOrWhiteSpace(ability.Description),
+                $"Ability '{ability.Id}' has invalid identity or schema.", errors);
+            Require(ability.RequiredAbilityPoints > 0,
+                $"Ability '{ability.Id}' needs a positive AP mastery requirement.", errors);
+            Require(ability.Kind == AbilityKind.Active
+                    ? ability.CooldownSeconds > 0f && ability.CapacityCost == 0
+                    : ability.CapacityCost > 0 && ability.CooldownSeconds == 0f,
+                $"Ability '{ability.Id}' has invalid cooldown/capacity rules.", errors);
+        }
+
+        foreach (AffixDefinition affix in catalog.Affixes.Values)
+        {
+            Require(affix.SchemaVersion == 1 && affix.AllowedSlots.Count > 0,
+                $"Affix '{affix.Id}' has invalid schema or no allowed slots.", errors);
+            Require(float.IsFinite(affix.MinimumValue) && float.IsFinite(affix.MaximumValue) &&
+                affix.MinimumValue > 0f && affix.MaximumValue >= affix.MinimumValue,
+                $"Affix '{affix.Id}' has an invalid value range.", errors);
+        }
+
+        foreach (TalentDefinition talent in catalog.Talents.Values)
+        {
+            Require(talent.SchemaVersion == 1 && talent.Tier is >= 1 and <= 5 &&
+                talent.MaximumRanks == 5 && talent.RequiredBranchPoints == (talent.Tier - 1) * 10 &&
+                float.IsFinite(talent.ValuePerRank) && talent.ValuePerRank > 0f,
+                $"Talent '{talent.Id}' has invalid tier, prerequisite, ranks, or effect.", errors);
+        }
+
+        foreach (LootTableDefinition lootTable in catalog.LootTables.Values)
+        {
+            Require(lootTable.BaseEnemyDropChancePerThreat is > 0f and <= 1f &&
+                lootTable.MaximumEnemyDropChance is > 0f and <= 1f &&
+                lootTable.EliteDropCount == 2 && lootTable.EncounterCacheDropCount == 2 &&
+                lootTable.BossDropCount == 6,
+                $"Loot table '{lootTable.Id}' does not match the production cadence.", errors);
+        }
+
+        foreach (WeaponArchetypeDefinition archetype in catalog.WeaponArchetypes.Values)
+        {
+            Require(archetype.SchemaVersion == 2 && archetype.Family != WeaponFamily.None &&
+                catalog.WeaponBases.Values.Any(weaponBase =>
+                    weaponBase.ArchetypeId.Equals(archetype.Id, StringComparison.OrdinalIgnoreCase)) &&
+                catalog.Abilities.ContainsKey(archetype.TaughtAbilityId),
+                $"Weapon archetype '{archetype.Id}' has an invalid template, family, or teaching ability.", errors);
+        }
+
+        foreach (WeaponBaseDefinition weaponBase in catalog.WeaponBases.Values)
+        {
+            Require(weaponBase.SchemaVersion == 2 && weaponBase.BaseTier is >= 1 and <= 5 &&
+                catalog.WeaponArchetypes.ContainsKey(weaponBase.ArchetypeId) &&
+                !string.IsNullOrWhiteSpace(weaponBase.ModelAsset) &&
+                float.IsFinite(weaponBase.DamageMultiplier) && weaponBase.DamageMultiplier > 0f &&
+                float.IsFinite(weaponBase.FireIntervalMultiplier) && weaponBase.FireIntervalMultiplier > 0f &&
+                float.IsFinite(weaponBase.WeakPointMultiplier) && weaponBase.WeakPointMultiplier >= 1f &&
+                float.IsFinite(weaponBase.ScopedSensitivityMultiplier) &&
+                weaponBase.ScopedSensitivityMultiplier is > 0f and <= 1f,
+                $"Weapon base '{weaponBase.Id}' has invalid schema, archetype, tuning, or presentation data.", errors);
+            Require(weaponBase.Effects.All(effect => float.IsFinite(effect.Magnitude) && effect.Magnitude >= 0f &&
+                    float.IsFinite(effect.Radius) && effect.Radius >= 0f &&
+                    float.IsFinite(effect.DurationSeconds) && effect.DurationSeconds >= 0f &&
+                    effect.Count >= 0 && effect.MaximumTargets >= 0),
+                $"Weapon base '{weaponBase.Id}' has an invalid typed effect.", errors);
+        }
+
+        if (catalog.WeaponVisualCalibrations.Count > 0)
+        {
+            Require(catalog.WeaponVisualCalibrations.Count == catalog.WeaponBases.Count,
+                "Production weapon visual calibration must cover every authored weapon base.", errors);
+            foreach (string weaponId in catalog.WeaponBases.Keys)
+            {
+                Require(catalog.WeaponVisualCalibrations.ContainsKey(weaponId),
+                    $"Weapon base '{weaponId}' is missing an authored visual calibration.", errors);
+            }
+            foreach (string weaponId in catalog.WeaponVisualCalibrations.Keys)
+            {
+                Require(catalog.WeaponBases.ContainsKey(weaponId),
+                    $"Weapon visual calibration '{weaponId}' has no matching weapon base.", errors);
             }
         }
 
@@ -368,6 +546,59 @@ public static class ContentValidator
         {
             Require(catalog.Upgrades.Count == 18,
                 "The release campaign must expose exactly 18 non-stacking in-run upgrades.", errors);
+            Require(catalog.WeaponArchetypes.Count == 10 && catalog.WeaponBases.Count == 50,
+                "The release arsenal must be authored from ten archetypes and 50 data-driven bases.", errors);
+            Require(catalog.Weapons.Values.Count(weapon => weapon.Family != WeaponFamily.None) == 50,
+                "The release arsenal must contain 50 family weapon bases.", errors);
+            foreach (WeaponFamily family in Enum.GetValues<WeaponFamily>().Where(family => family != WeaponFamily.None))
+            {
+                WeaponDefinition[] familyWeapons = catalog.Weapons.Values
+                    .Where(weapon => weapon.Family == family)
+                    .OrderBy(weapon => weapon.BaseTier)
+                    .ToArray();
+                Require(familyWeapons.Length == 5 && familyWeapons.Select(weapon => weapon.BaseTier)
+                    .SequenceEqual(WeaponBaseTiers),
+                    $"Weapon family '{family}' must expose proficiency tiers I-V exactly once.", errors);
+                foreach (WeaponDefinition weapon in familyWeapons)
+                {
+                    Require(weapon.TaughtAbilityId is not null && catalog.Abilities.ContainsKey(weapon.TaughtAbilityId) &&
+                        !string.IsNullOrWhiteSpace(weapon.IconAsset) &&
+                        weapon.ModelAsset.StartsWith("Models/Weapons/", StringComparison.OrdinalIgnoreCase),
+                        $"Production weapon '{weapon.Id}' needs its teaching ability, icon, and weapon model.", errors);
+                }
+
+
+                int oneHanded = familyWeapons.Count(weapon => weapon.Handedness == Handedness.OneHanded);
+                int expectedOneHanded = family is WeaponFamily.Pulse or WeaponFamily.SMG ? 5 :
+                    family == WeaponFamily.Experimental ? 2 : 0;
+                Require(oneHanded == expectedOneHanded &&
+                    familyWeapons.All(weapon => weapon.Handedness is Handedness.OneHanded or Handedness.TwoHanded),
+                    $"Weapon family '{family}' has invalid handedness distribution.", errors);
+            }
+
+            Require(catalog.Weapons.Values.Where(weapon => weapon.Family == WeaponFamily.Precision)
+                .All(weapon => weapon.AdsFieldOfViewDegrees == 20f &&
+                    MathF.Abs(weapon.ScopedSensitivityMultiplier - 0.42f) < 0.001f &&
+                    weapon.WeakPointMultiplier > 1f),
+                "Precision weapons must provide four-times scopes, scoped sensitivity, and weak-point damage.", errors);
+
+            Require(catalog.Abilities.Values.Count(ability => ability.Kind == AbilityKind.Active) >= 12 &&
+                catalog.Abilities.Values.Count(ability => ability.Kind == AbilityKind.Passive) >= 24,
+                "The release ability library needs at least 12 actives and 24 passives.", errors);
+            foreach (TalentBranch branch in Enum.GetValues<TalentBranch>())
+            {
+                TalentDefinition[] branchTalents = catalog.Talents.Values
+                    .Where(talent => talent.Branch == branch).ToArray();
+                Require(branchTalents.Sum(talent => talent.MaximumRanks) == 50 &&
+                    Enumerable.Range(1, 5).All(tier => branchTalents.Count(talent => talent.Tier == tier) == 2),
+                    $"Talent branch '{branch}' must contain two five-rank nodes in each of five tiers.", errors);
+            }
+
+            Require(catalog.EquipmentBases.Values.Count(equipment =>
+                    equipment.CompatibleSlots.Contains(EquipmentSlot.Accessory1)) >= 8 &&
+                catalog.EquipmentBases.Values.Count(equipment =>
+                    equipment.CompatibleSlots.Contains(EquipmentSlot.Ring1)) >= 8,
+                "The release equipment catalog needs at least eight accessory and eight ring bases.", errors);
         }
 
         return new ContentValidationResult(errors);

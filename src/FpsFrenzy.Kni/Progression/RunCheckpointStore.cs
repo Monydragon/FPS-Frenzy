@@ -11,6 +11,7 @@ public sealed class RunCheckpointStore
     };
 
     private readonly string _path;
+    private readonly string? _legacyPath;
 
     public RunCheckpointStore(string path)
     {
@@ -18,24 +19,45 @@ public sealed class RunCheckpointStore
         _path = Path.GetFullPath(path);
     }
 
-    public static RunCheckpointStore CreateDefault() => new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "FPSFrenzy",
-        "run-checkpoint-v2.json"));
+    private RunCheckpointStore(string path, string legacyPath) : this(path)
+    {
+        _legacyPath = Path.GetFullPath(legacyPath);
+    }
 
-    public bool Exists => File.Exists(_path);
+    public static RunCheckpointStore CreateDefault()
+    {
+        string directory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "FPSFrenzy");
+        return new RunCheckpointStore(
+            Path.Combine(directory, "run-checkpoint-v4.json"),
+            Path.Combine(directory, "run-checkpoint-v3.json"));
+    }
+
+    public bool Exists => File.Exists(_path) || (_legacyPath is not null && File.Exists(_legacyPath));
 
     public RunCheckpoint? Load()
     {
         try
         {
-            if (!File.Exists(_path))
+            string? loadPath = File.Exists(_path)
+                ? _path
+                : _legacyPath is not null && File.Exists(_legacyPath) ? _legacyPath : null;
+            if (loadPath is null)
             {
                 return null;
             }
 
             RunCheckpoint? checkpoint = JsonSerializer.Deserialize<RunCheckpoint>(
-                File.ReadAllText(_path), SerializerOptions);
+                File.ReadAllText(loadPath), SerializerOptions);
+            if (checkpoint?.SchemaVersion == 3)
+            {
+                checkpoint = MigrateVersionThree(checkpoint);
+            }
+            else if (checkpoint?.SchemaVersion == 4)
+            {
+                checkpoint = MigrateVersionFour(checkpoint);
+            }
             return IsValid(checkpoint) ? checkpoint : null;
         }
         catch (IOException)
@@ -90,6 +112,11 @@ public sealed class RunCheckpointStore
             }
 
             TryDelete(_path + ".tmp");
+            if (_legacyPath is not null)
+            {
+                TryDelete(_legacyPath);
+                TryDelete(_legacyPath + ".tmp");
+            }
             return true;
         }
         catch (IOException)
@@ -134,6 +161,32 @@ public sealed class RunCheckpointStore
             checkpoint.SectorsCompleted is < 0 or > 3 ||
             checkpoint.CompletedPurgeEncounters < 0 || checkpoint.CompletedRelayEncounters < 0 ||
             checkpoint.CompletedEliteEncounters < 0 || !float.IsFinite(checkpoint.LastCompletedEncounterMetric) ||
+            checkpoint.ThreatTier is < FpsFrenzy.Core.Data.ThreatTier.TierI or
+                > FpsFrenzy.Core.Data.ThreatTier.TierX ||
+            !FpsFrenzy.Core.Data.DifficultyCatalog.All.Any(definition => definition.Mode ==
+                FpsFrenzy.Core.Data.DifficultyCatalog.Normalize(checkpoint.Difficulty)) ||
+            checkpoint.EquipmentLoadout is null || checkpoint.EquipmentItems is null ||
+            checkpoint.HandWeaponStates is null || checkpoint.PendingProgression is null ||
+            checkpoint.WeaponSetA is null || checkpoint.WeaponSetB is null ||
+            checkpoint.WeaponSetStates is null ||
+            checkpoint.WeaponQuickbar is null || checkpoint.WeaponQuickbar.Slots is null ||
+            checkpoint.WeaponQuickbar.Slots.Count != WeaponQuickbarLoadout.SlotCount ||
+            checkpoint.ActiveWeaponSlotIndex is < 0 or >= WeaponQuickbarLoadout.SlotCount ||
+            checkpoint.IssuedItemInstances is null ||
+            checkpoint.RecoveryCache is null || checkpoint.AbilityCooldowns is null ||
+            checkpoint.RunExperienceEarned < 0 || checkpoint.RunLevelsGained < 0 ||
+            checkpoint.RunProficiencyExperience is null || checkpoint.RunAbilitiesMastered is null ||
+            checkpoint.RunCollectedItemIds is null || checkpoint.RunRarityTotals is null ||
+            checkpoint.RunHighestItemPower is < 0 or > 100 ||
+            checkpoint.RunProficiencyExperience.Any(pair => pair.Value < 0) ||
+            checkpoint.RunRarityTotals.Any(pair => pair.Value < 0) ||
+            checkpoint.RunAbilitiesMastered.Any(string.IsNullOrWhiteSpace) ||
+            checkpoint.RunCollectedItemIds.Any(string.IsNullOrWhiteSpace) ||
+            checkpoint.AbilityCooldowns.Any(pair => string.IsNullOrWhiteSpace(pair.Key) ||
+                !IsFiniteNonNegative(pair.Value)) || checkpoint.LootDropSerial < 0 ||
+            checkpoint.PendingProgression.Equipment is null ||
+            checkpoint.PendingProgression.ProficiencyExperience is null ||
+            checkpoint.PendingProgression.AbilityPoints is null || checkpoint.RecoveryCache.Items is null ||
             checkpoint.OwnedUpgradeIds.Count != checkpoint.NextEncounterIndex ||
             checkpoint.OwnedUpgradeIds.Any(string.IsNullOrWhiteSpace) ||
             checkpoint.OwnedUpgradeIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
@@ -145,15 +198,84 @@ public sealed class RunCheckpointStore
             return false;
         }
 
-        return checkpoint.WeaponStates.All(state =>
+        return checkpoint.WeaponStates.Concat(checkpoint.HandWeaponStates.Values)
+            .Concat(checkpoint.WeaponSetStates.Values.SelectMany(state =>
+                new[] { state.RightHand, state.LeftHand }.OfType<WeaponCheckpointState>())).All(IsValid) &&
+            checkpoint.EquipmentItems.Concat(checkpoint.PendingProgression.Equipment)
+                .Concat(checkpoint.RecoveryCache.Items).Concat(checkpoint.IssuedItemInstances).All(item =>
+                    item is not null && !string.IsNullOrWhiteSpace(item.Id) &&
+                    !string.IsNullOrWhiteSpace(item.DisplayName) && item.ItemPower is >= 1 and <= 100 &&
+                    item.Affixes is not null && (item.WeaponBaseId is not null ^ item.EquipmentBaseId is not null)) &&
+            IsValid(checkpoint.WeaponSetA) && IsValid(checkpoint.WeaponSetB) &&
+            checkpoint.WeaponQuickbar.Slots.All(IsValid) &&
+            checkpoint.IssuedItemInstances.All(item => item.IsRunBound);
+    }
+
+    private static bool IsValid(WeaponSetLoadout set) =>
+        IsValid(set.RightHand) && IsValid(set.LeftHand);
+
+    private static bool IsValid(WeaponPresetSlot set) =>
+        set is not null && IsValid(set.RightHand) && IsValid(set.LeftHand);
+
+    private static bool IsValid(StarterWeaponReference? reference) =>
+        reference is null || !string.IsNullOrWhiteSpace(reference.WeaponBaseId);
+
+    private static RunCheckpoint MigrateVersionThree(RunCheckpoint legacy)
+    {
+        StarterWeaponReference? ReferenceFor(FpsFrenzy.Core.Data.EquipmentSlot slot)
+        {
+            string? itemId = legacy.EquipmentLoadout[slot];
+            EquipmentInstance? item = legacy.EquipmentItems.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, itemId, StringComparison.OrdinalIgnoreCase));
+            return item?.WeaponBaseId is string weaponId
+                ? new StarterWeaponReference { WeaponBaseId = weaponId, ItemInstanceId = item.Id }
+                : null;
+        }
+
+        StarterWeaponReference? right = ReferenceFor(FpsFrenzy.Core.Data.EquipmentSlot.RightHand) ??
+            StarterWeaponReference.Issue(legacy.StartingWeaponId);
+        StarterWeaponReference? left = ReferenceFor(FpsFrenzy.Core.Data.EquipmentSlot.LeftHand);
+        return legacy with
+        {
+            SchemaVersion = RunCheckpoint.CurrentSchemaVersion,
+            Difficulty = FpsFrenzy.Core.Data.DifficultyCatalog.Normalize(legacy.Difficulty),
+            WeaponSetA = new WeaponSetLoadout { RightHand = right, LeftHand = left },
+            WeaponSetB = new WeaponSetLoadout(),
+            WeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(
+                new WeaponSetLoadout { RightHand = right, LeftHand = left }, new WeaponSetLoadout()),
+            ActiveWeaponSlotIndex = 0,
+            ActiveWeaponSetIndex = 0,
+            WeaponSetStates = new Dictionary<int, WeaponSetCheckpointState>
+            {
+                [0] = new WeaponSetCheckpointState
+                {
+                    RightHand = legacy.HandWeaponStates.GetValueOrDefault(
+                        FpsFrenzy.Core.Data.EquipmentSlot.RightHand),
+                    LeftHand = legacy.HandWeaponStates.GetValueOrDefault(
+                        FpsFrenzy.Core.Data.EquipmentSlot.LeftHand),
+                },
+            },
+            IssuedItemInstances = [],
+        };
+    }
+
+    private static RunCheckpoint MigrateVersionFour(RunCheckpoint legacy) => legacy with
+    {
+        SchemaVersion = RunCheckpoint.CurrentSchemaVersion,
+        Difficulty = FpsFrenzy.Core.Data.DifficultyCatalog.Normalize(legacy.Difficulty),
+        WeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(legacy.WeaponSetA, legacy.WeaponSetB),
+        ActiveWeaponSlotIndex = Math.Clamp(legacy.ActiveWeaponSetIndex, 0, 1),
+    };
+
+    private static bool IsValid(WeaponCheckpointState state) =>
             state is not null && !string.IsNullOrWhiteSpace(state.WeaponId) &&
             state.Magazine >= 0 && state.Reserve >= 0 &&
             IsFiniteNonNegative(state.Energy) && IsFiniteNonNegative(state.Heat) &&
             IsFiniteNonNegative(state.FireCooldownSeconds) &&
             IsFiniteNonNegative(state.ReloadRemainingSeconds) &&
+            IsFiniteNonNegative(state.ReloadDurationSeconds) &&
             state.BurstShotsRemaining >= 0 &&
-            IsFiniteNonNegative(state.MagazineConsumptionAccumulator));
-    }
+            IsFiniteNonNegative(state.MagazineConsumptionAccumulator);
 
     private static bool IsFiniteNonNegative(float value) => float.IsFinite(value) && value >= 0f;
 }

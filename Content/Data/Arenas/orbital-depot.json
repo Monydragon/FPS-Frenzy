@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "orbital-depot",
   "displayName": "Orbital Depot Arena",
   "waveSetId": "orbital-depot-waves",
@@ -11,6 +11,7 @@
   "fogStart": 52.0,
   "fogEnd": 120.0,
   "navigationCellSize": 0.75,
+  "traversalMode": "OpenArena",
   "enemySpawns": [
     { "x": -30.0, "y": 0.7, "z": -23.0 },
     { "x": 0.0, "y": 0.7, "z": -25.0 },
@@ -26,7 +27,7 @@
     { "x": 0.0, "y": 0.7, "z": 25.0 }
   ],
   "primitives": [
-    { "id": "floor", "position": { "x": 0.0, "y": -0.5, "z": 0.0 }, "size": { "x": 72.0, "y": 1.0, "z": 56.0 }, "color": { "x": 0.06, "y": 0.085, "z": 0.14 } },
+    { "id": "floor", "position": { "x": 0.0, "y": -0.5, "z": 0.0 }, "size": { "x": 72.0, "y": 1.0, "z": 56.0 }, "color": { "x": 0.06, "y": 0.085, "z": 0.14 }, "collisionRole": "Floor" },
 
     { "id": "floor-north-west", "position": { "x": -18.0, "y": 0.012, "z": -14.0 }, "size": { "x": 32.0, "y": 0.024, "z": 24.0 }, "color": { "x": 0.68, "y": 0.82, "z": 1.0 }, "textureAsset": "Textures/Arenas/OrbitalDepot/floor-grid", "textureMetersPerTile": 4.0, "hasCollision": false, "isNavigationObstacle": false },
     { "id": "floor-north-east", "position": { "x": 18.0, "y": 0.012, "z": -14.0 }, "size": { "x": 32.0, "y": 0.024, "z": 24.0 }, "color": { "x": 0.62, "y": 0.86, "z": 0.82 }, "textureAsset": "Textures/Arenas/OrbitalDepot/floor-grid", "textureMetersPerTile": 4.0, "hasCollision": false, "isNavigationObstacle": false },
@@ -35,10 +36,10 @@
     { "id": "central-runway", "position": { "x": 0.0, "y": 0.034, "z": 0.0 }, "size": { "x": 6.0, "y": 0.025, "z": 54.0 }, "color": { "x": 0.7, "y": 0.8, "z": 0.98 }, "textureAsset": "Textures/Arenas/OrbitalDepot/floor-grid", "textureMetersPerTile": 3.0, "hasCollision": false, "isNavigationObstacle": false },
     { "id": "cross-runway", "position": { "x": 0.0, "y": 0.034, "z": 0.0 }, "size": { "x": 70.0, "y": 0.025, "z": 6.0 }, "color": { "x": 0.7, "y": 0.8, "z": 0.98 }, "textureAsset": "Textures/Arenas/OrbitalDepot/floor-grid", "textureMetersPerTile": 3.0, "hasCollision": false, "isNavigationObstacle": false },
 
-    { "id": "north-bulkhead", "position": { "x": 0.0, "y": 3.0, "z": -28.0 }, "size": { "x": 72.0, "y": 6.0, "z": 1.0 }, "color": { "x": 0.72, "y": 0.82, "z": 1.0 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0 },
-    { "id": "south-bulkhead", "position": { "x": 0.0, "y": 3.0, "z": 28.0 }, "size": { "x": 72.0, "y": 6.0, "z": 1.0 }, "color": { "x": 0.82, "y": 0.68, "z": 0.96 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0 },
-    { "id": "west-bulkhead", "position": { "x": -36.0, "y": 3.0, "z": 0.0 }, "size": { "x": 1.0, "y": 6.0, "z": 56.0 }, "color": { "x": 0.96, "y": 0.72, "z": 0.48 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0 },
-    { "id": "east-bulkhead", "position": { "x": 36.0, "y": 3.0, "z": 0.0 }, "size": { "x": 1.0, "y": 6.0, "z": 56.0 }, "color": { "x": 0.6, "y": 0.92, "z": 0.74 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0 },
+    { "id": "north-bulkhead", "position": { "x": 0.0, "y": 3.0, "z": -28.0 }, "size": { "x": 72.0, "y": 6.0, "z": 1.0 }, "color": { "x": 0.72, "y": 0.82, "z": 1.0 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0, "collisionRole": "OuterWall" },
+    { "id": "south-bulkhead", "position": { "x": 0.0, "y": 3.0, "z": 28.0 }, "size": { "x": 72.0, "y": 6.0, "z": 1.0 }, "color": { "x": 0.82, "y": 0.68, "z": 0.96 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0, "collisionRole": "OuterWall" },
+    { "id": "west-bulkhead", "position": { "x": -36.0, "y": 3.0, "z": 0.0 }, "size": { "x": 1.0, "y": 6.0, "z": 56.0 }, "color": { "x": 0.96, "y": 0.72, "z": 0.48 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0, "collisionRole": "OuterWall" },
+    { "id": "east-bulkhead", "position": { "x": 36.0, "y": 3.0, "z": 0.0 }, "size": { "x": 1.0, "y": 6.0, "z": 56.0 }, "color": { "x": 0.6, "y": 0.92, "z": 0.74 }, "textureAsset": "Textures/Arenas/OrbitalDepot/wall-diagonal", "textureMetersPerTile": 4.0, "collisionRole": "OuterWall" },
 
     { "id": "north-truss", "position": { "x": 0.0, "y": 5.65, "z": -25.5 }, "size": { "x": 68.0, "y": 0.32, "z": 0.45 }, "color": { "x": 0.18, "y": 0.32, "z": 0.48 }, "hasCollision": false, "isNavigationObstacle": false },
     { "id": "south-truss", "position": { "x": 0.0, "y": 5.65, "z": 25.5 }, "size": { "x": 68.0, "y": 0.32, "z": 0.45 }, "color": { "x": 0.3, "y": 0.2, "z": 0.46 }, "hasCollision": false, "isNavigationObstacle": false },

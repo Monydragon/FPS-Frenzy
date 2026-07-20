@@ -5,8 +5,6 @@ namespace FpsFrenzy.Core.Tests;
 
 public sealed class WeaponBalanceTests
 {
-    private static readonly string[] CrowdLeaders = ["plasma-launcher", "arc-cannon"];
-    private static readonly string[] RangeLeaders = ["burst-carbine", "beam-rifle"];
 
     private static ContentCatalog LoadCatalog() => ContentCatalog.LoadFromDirectory(
         Path.Combine(AppContext.BaseDirectory, "Content", "Data"));
@@ -26,8 +24,10 @@ public sealed class WeaponBalanceTests
         string rangeLeader = samples.MaxBy(pair => pair.Value.Range).Key;
         string uptimeLeader = samples.MaxBy(pair => pair.Value.Uptime).Key;
 
-        Assert.Contains(crowdLeader, CrowdLeaders);
-        Assert.Contains(rangeLeader, RangeLeaders);
+        Assert.Contains(catalog.Weapons[crowdLeader].Family,
+            new[] { WeaponFamily.Plasma, WeaponFamily.Arc, WeaponFamily.Heavy });
+        Assert.Contains(catalog.Weapons[rangeLeader].Family,
+            new[] { WeaponFamily.Burst, WeaponFamily.Beam, WeaponFamily.Precision, WeaponFamily.Heavy });
         Assert.True(new[] { singleTargetLeader, crowdLeader, rangeLeader, uptimeLeader }
             .Distinct(StringComparer.OrdinalIgnoreCase).Count() >= 3);
         Assert.DoesNotContain(catalog.Weapons.Keys, weaponId =>

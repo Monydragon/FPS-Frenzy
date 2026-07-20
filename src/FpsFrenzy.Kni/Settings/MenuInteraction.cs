@@ -18,6 +18,8 @@ public enum MenuInputButtons
     Pause = 1 << 6,
     OpenSettings = 1 << 7,
     OpenAccessibility = 1 << 8,
+    PreviousTab = 1 << 9,
+    NextTab = 1 << 10,
 }
 
 public readonly record struct MenuInputSnapshot(
@@ -54,6 +56,10 @@ public readonly record struct MenuInputSnapshot(
         Set(ref buttons, MenuInputButtons.Pause, gamePad.IsButtonDown(GamePadButton.Start));
         Set(ref buttons, MenuInputButtons.OpenSettings, keyboard.IsKeyDown(Keys.F2));
         Set(ref buttons, MenuInputButtons.OpenAccessibility, keyboard.IsKeyDown(Keys.F3));
+        Set(ref buttons, MenuInputButtons.PreviousTab,
+            keyboard.IsKeyDown(Keys.PageUp) || gamePad.IsButtonDown(GamePadButton.LeftShoulder));
+        Set(ref buttons, MenuInputButtons.NextTab,
+            keyboard.IsKeyDown(Keys.PageDown) || gamePad.IsButtonDown(GamePadButton.RightShoulder));
 
         bool hasPointer;
         bool pointerDown;
@@ -145,8 +151,15 @@ public static class MenuLayout
 {
     public static MenuLayoutMetrics Create(Rectangle safeArea, int rowCount, bool largeText, MenuPage page)
     {
+        bool densePage = page is MenuPage.Character or MenuPage.Inventory or MenuPage.Loadout or
+            MenuPage.Abilities or MenuPage.Proficiencies or MenuPage.Crafting or MenuPage.CraftingItem or
+            MenuPage.Stats;
+        bool compactMain = page == MenuPage.Main;
         int rowHeight = page == MenuPage.Reward
             ? (largeText ? 70 : 62)
+            : page == MenuPage.Loadout ? 16
+            : densePage ? (largeText ? 29 : 25)
+            : compactMain ? (largeText ? 31 : 27)
             : (largeText ? 39 : 31);
         int panelWidth = Math.Min(720, Math.Max(280, safeArea.Width - 120));
         int panelLeft = safeArea.Center.X - (panelWidth / 2);
@@ -155,6 +168,9 @@ public static class MenuLayout
             MenuPage.Main => safeArea.Center.Y - 72,
             MenuPage.Results => safeArea.Center.Y + 94,
             MenuPage.Reward => safeArea.Center.Y - 72,
+            MenuPage.Character or MenuPage.Inventory or MenuPage.Loadout or MenuPage.Abilities or
+                MenuPage.Proficiencies or MenuPage.Crafting or MenuPage.CraftingItem or MenuPage.Stats =>
+                Math.Max(safeArea.Top + 205, safeArea.Bottom - (rowCount * rowHeight) - 42),
             _ => safeArea.Center.Y - 105,
         };
         int panelHeight = (rowCount * rowHeight) + 42;
@@ -164,4 +180,25 @@ public static class MenuLayout
 
     public static Rectangle GetPauseButtonBounds(Rectangle safeArea) =>
         new(safeArea.Right - 148, safeArea.Top + 66, 104, 48);
+
+    public static Rectangle GetProfileTabBounds(Rectangle safeArea, int index)
+    {
+        const int count = 7;
+        int totalWidth = Math.Min(700, safeArea.Width - 40);
+        int width = totalWidth / count;
+        int left = safeArea.Center.X - (totalWidth / 2);
+        return new Rectangle(left + (index * width), safeArea.Center.Y - 205, width, 27);
+    }
+
+    public static int HitTestProfileTab(Rectangle safeArea, Point point)
+    {
+        for (int index = 0; index < 7; index++)
+        {
+            if (GetProfileTabBounds(safeArea, index).Contains(point))
+            {
+                return index;
+            }
+        }
+        return -1;
+    }
 }

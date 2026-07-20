@@ -29,6 +29,10 @@
   "screenShake": 0.18,
   "hipFieldOfViewDegrees": 80.0,
   "adsFieldOfViewDegrees": 55.0,
-  "viewModelHipOffset": { "x": 0.32, "y": -0.28, "z": -0.55 },
-  "viewModelAdsOffset": { "x": 0.0, "y": -0.17, "z": -0.42 }
+  "viewModelHipOffset": { "x": 0.31, "y": -0.31, "z": -0.62 },
+  "viewModelAdsOffset": { "x": 0.05, "y": -0.21, "z": -0.54 },
+  "viewModelTargetSpan": 0.46,
+  "viewModelYawDegrees": 108.0,
+  "viewModelPitchDegrees": -2.0,
+  "viewModelRollDegrees": 2.5
 }

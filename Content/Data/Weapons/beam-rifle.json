@@ -20,5 +20,11 @@
   "recoilKick": 0.22,
   "screenShake": 0.08,
   "hipFieldOfViewDegrees": 80.0,
-  "adsFieldOfViewDegrees": 48.0
+  "adsFieldOfViewDegrees": 48.0,
+  "viewModelHipOffset": { "x": 0.30, "y": -0.30, "z": -0.84 },
+  "viewModelAdsOffset": { "x": 0.03, "y": -0.20, "z": -0.68 },
+  "viewModelTargetSpan": 0.86,
+  "viewModelYawDegrees": 106.0,
+  "viewModelPitchDegrees": -1.5,
+  "viewModelRollDegrees": 1.5
 }

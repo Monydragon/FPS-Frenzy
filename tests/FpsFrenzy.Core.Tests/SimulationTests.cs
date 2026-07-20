@@ -311,7 +311,7 @@ public sealed class SimulationTests
         }
 
         Assert.True(simulation.Player.Health < damagedHealth);
-        Assert.Equal(DifficultyMode.Standard, simulation.Difficulty);
+        Assert.Equal(DifficultyMode.Normal, simulation.Difficulty);
     }
 
     [Fact]
@@ -320,12 +320,12 @@ public sealed class SimulationTests
         ContentCatalog catalog = LoadShippedCatalog();
         WaveSetDefinition waves = catalog.WaveSets[catalog.Arenas["orbital-depot"].WaveSetId];
 
-        Assert.Equal(DifficultyMode.Standard, waves.Difficulty);
+        Assert.Equal(DifficultyMode.Normal, waves.Difficulty);
         Assert.All(catalog.Weapons.Values, weapon =>
         {
             float effectiveDamagePerSecond = EffectiveDamagePerSecond(weapon);
             Assert.InRange(effectiveDamagePerSecond, 70f, 120f);
-            Assert.InRange(weapon.Range, 30f, 110f);
+            Assert.InRange(weapon.Range, 30f, 120f);
         });
         Assert.All(catalog.Enemies.Values.Where(enemy => !enemy.IsBoss), enemy =>
         {

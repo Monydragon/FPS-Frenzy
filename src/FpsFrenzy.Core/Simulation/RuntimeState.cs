@@ -60,6 +60,12 @@ public enum CombatEventType
     SectorActivated,
     RelayDamaged,
     ArmoryActivated,
+    EquipmentDropped,
+    EquipmentCollected,
+    RecoveryCacheOpened,
+    ProgressionCommitted,
+    AbilityActivated,
+    WeaponSetSwapped,
 }
 
 public readonly record struct CombatEvent(
@@ -80,6 +86,7 @@ public sealed class PlayerState
     public float Yaw { get; internal set; }
     public float Pitch { get; internal set; }
     public float VerticalVelocity { get; internal set; }
+    public Vector3 ExternalVelocity { get; internal set; }
     public bool IsGrounded { get; internal set; } = true;
     public bool IsAiming { get; internal set; }
     public float Health { get; internal set; } = 100f;
@@ -87,14 +94,33 @@ public sealed class PlayerState
     public float AdrenalSeconds { get; internal set; }
     public List<WeaponState> Weapons { get; } = [];
     public int SelectedWeaponIndex { get; internal set; }
+    public WeaponState? RightHandWeapon { get; internal set; }
+    public WeaponState? LeftHandWeapon { get; internal set; }
+    public int ActiveWeaponSetIndex { get; internal set; }
+    public float WeaponSwapRemainingSeconds { get; internal set; }
 
     public WeaponState CurrentWeapon => Weapons[SelectedWeaponIndex];
+    public WeaponState EffectiveRightHandWeapon => RightHandWeapon ?? CurrentWeapon;
+    public bool IsUsingTwoHandedWeapon => RightHandWeapon is not null &&
+        ReferenceEquals(RightHandWeapon, LeftHandWeapon);
+}
+
+public sealed class RuntimeWeaponSet
+{
+    public WeaponState? RightHand { get; internal set; }
+    public WeaponState? LeftHand { get; internal set; }
+    public string? RightHandItemId { get; internal set; }
+    public string? LeftHandItemId { get; internal set; }
 }
 
 public sealed class WeaponState
 {
     private readonly RunModifiers? _modifiers;
     private float _magazineConsumptionAccumulator;
+    private float _persistentCapacityMultiplier = 1f;
+    private float _persistentFireIntervalMultiplier = 1f;
+    private float _persistentReloadMultiplier = 1f;
+    private float _persistentRecoveryMultiplier = 1f;
 
     public WeaponState(WeaponDefinition definition, RunModifiers? modifiers = null)
     {
@@ -103,6 +129,7 @@ public sealed class WeaponState
         Magazine = MaximumMagazine;
         Reserve = MaximumReserve;
         Energy = MaximumEnergy;
+        SecondsSinceLastShot = 99f;
     }
 
     public WeaponDefinition Definition { get; }
@@ -112,21 +139,53 @@ public sealed class WeaponState
     public float Heat { get; internal set; }
     public float FireCooldownSeconds { get; internal set; }
     public float ReloadRemainingSeconds { get; internal set; }
+    public float ReloadDurationSeconds { get; internal set; }
+    public float SecondsSinceLastShot { get; private set; }
     public int BurstShotsRemaining { get; internal set; }
     public bool IsOverheated { get; internal set; }
     public bool IsReloading => ReloadRemainingSeconds > 0f;
+    public float ReloadProgress => IsReloading && ReloadDurationSeconds > 0f
+        ? 1f - Math.Clamp(ReloadRemainingSeconds / ReloadDurationSeconds, 0f, 1f)
+        : 0f;
     public int MaximumMagazine => ScaleCapacity(Definition.MagazineSize);
     public int MaximumReserve => ScaleCapacity(Definition.ReserveCapacity);
-    public float MaximumEnergy => Definition.EnergyCapacity * (_modifiers?.CapacityMultiplier ?? 1f);
+    public float MaximumEnergy => Definition.EnergyCapacity * (_modifiers?.CapacityMultiplier ?? 1f) *
+        _persistentCapacityMultiplier;
 
-    public void Tick(float deltaSeconds)
+    public void SetPersistentModifiers(
+        float capacityMultiplier,
+        float fireIntervalMultiplier,
+        float reloadMultiplier,
+        float recoveryMultiplier,
+        bool refill)
     {
+        int previousMaximumMagazine = MaximumMagazine;
+        int previousMaximumReserve = MaximumReserve;
+        float previousMaximumEnergy = MaximumEnergy;
+        bool magazineWasFull = Magazine >= previousMaximumMagazine;
+        bool reserveWasFull = Reserve >= previousMaximumReserve;
+        bool energyWasFull = Energy >= previousMaximumEnergy - 0.001f;
+        _persistentCapacityMultiplier = Math.Clamp(capacityMultiplier, 0.25f, 4f);
+        _persistentFireIntervalMultiplier = Math.Clamp(fireIntervalMultiplier, 0.25f, 2f);
+        _persistentReloadMultiplier = Math.Clamp(reloadMultiplier, 0.25f, 2f);
+        _persistentRecoveryMultiplier = Math.Clamp(recoveryMultiplier, 0.25f, 4f);
+        Magazine = refill || magazineWasFull ? MaximumMagazine : Math.Min(Magazine, MaximumMagazine);
+        Reserve = refill || reserveWasFull ? MaximumReserve : Math.Min(Reserve, MaximumReserve);
+        Energy = refill || energyWasFull ? MaximumEnergy : MathF.Min(Energy, MaximumEnergy);
+    }
+
+    public void Tick(float deltaSeconds, float recoveryScale = 1f)
+    {
+        SecondsSinceLastShot = MathF.Min(99f, SecondsSinceLastShot + deltaSeconds);
         FireCooldownSeconds = MathF.Max(0f, FireCooldownSeconds - deltaSeconds);
         float coolingMultiplier = _modifiers?.CoolingMultiplier(Definition.Id) ?? 1f;
-        float recoveryMultiplier = _modifiers?.RecoveryMultiplier ?? 1f;
-        Heat = MathF.Max(0f, Heat - (Definition.HeatDissipationPerSecond * coolingMultiplier * deltaSeconds));
+        float recoveryMultiplier = (_modifiers?.RecoveryMultiplier ?? 1f) * _persistentRecoveryMultiplier;
+        float clampedRecoveryScale = Math.Clamp(recoveryScale, 0f, 1f);
+        Heat = MathF.Max(0f, Heat - (Definition.HeatDissipationPerSecond * coolingMultiplier *
+            _persistentRecoveryMultiplier * deltaSeconds * clampedRecoveryScale));
         Energy = MathF.Min(MaximumEnergy,
-            Energy + (Definition.EnergyRegenerationPerSecond * recoveryMultiplier * deltaSeconds));
+            Energy + (Definition.EnergyRegenerationPerSecond * recoveryMultiplier * deltaSeconds *
+                clampedRecoveryScale));
         if (IsOverheated && Heat <= 0.35f)
         {
             IsOverheated = false;
@@ -198,7 +257,9 @@ public sealed class WeaponState
                 break;
         }
 
-        FireCooldownSeconds = Definition.FireIntervalSeconds * (_modifiers?.FireIntervalMultiplier ?? 1f);
+        FireCooldownSeconds = Definition.FireIntervalSeconds * (_modifiers?.FireIntervalMultiplier ?? 1f) *
+            _persistentFireIntervalMultiplier;
+        SecondsSinceLastShot = 0f;
         return true;
     }
 
@@ -225,12 +286,14 @@ public sealed class WeaponState
         }
     }
 
-    public void BeginReload()
+    public void BeginReload(float durationMultiplier = 1f)
     {
         if (Definition.AmmoMode == AmmoMode.MagazineReserve && !IsReloading &&
             Magazine < MaximumMagazine && Reserve > 0)
         {
-            ReloadRemainingSeconds = Definition.ReloadSeconds * (_modifiers?.ReloadTimeMultiplier ?? 1f);
+            ReloadDurationSeconds = Definition.ReloadSeconds * (_modifiers?.ReloadTimeMultiplier ?? 1f) *
+                _persistentReloadMultiplier * MathF.Max(0.1f, durationMultiplier);
+            ReloadRemainingSeconds = ReloadDurationSeconds;
         }
     }
 
@@ -247,6 +310,13 @@ public sealed class WeaponState
         }
     }
 
+    public void CancelTransientState()
+    {
+        ReloadRemainingSeconds = 0f;
+        ReloadDurationSeconds = 0f;
+        BurstShotsRemaining = 0;
+    }
+
     internal WeaponCheckpointState CreateCheckpointState() => new()
     {
         WeaponId = Definition.Id,
@@ -256,6 +326,7 @@ public sealed class WeaponState
         Heat = Heat,
         FireCooldownSeconds = FireCooldownSeconds,
         ReloadRemainingSeconds = ReloadRemainingSeconds,
+        ReloadDurationSeconds = ReloadDurationSeconds,
         BurstShotsRemaining = BurstShotsRemaining,
         IsOverheated = IsOverheated,
         MagazineConsumptionAccumulator = _magazineConsumptionAccumulator,
@@ -277,6 +348,10 @@ public sealed class WeaponState
         Heat = Math.Clamp(FiniteOrZero(state.Heat), 0f, 1f);
         FireCooldownSeconds = Math.Clamp(FiniteOrZero(state.FireCooldownSeconds), 0f, 60f);
         ReloadRemainingSeconds = Math.Clamp(FiniteOrZero(state.ReloadRemainingSeconds), 0f, 60f);
+        float savedReloadDuration = Math.Clamp(FiniteOrZero(state.ReloadDurationSeconds), 0f, 60f);
+        ReloadDurationSeconds = ReloadRemainingSeconds > 0f
+            ? MathF.Max(ReloadRemainingSeconds, savedReloadDuration)
+            : savedReloadDuration;
         int maximumBurst = Definition.TriggerMode == TriggerMode.Burst
             ? Math.Max(1, Definition.BurstCount + (_modifiers?.BurstCountBonus(Definition.Id) ?? 0))
             : 0;
@@ -296,7 +371,8 @@ public sealed class WeaponState
 
     private int ScaleCapacity(int capacity) => capacity <= 0
         ? 0
-        : Math.Max(1, (int)MathF.Round(capacity * (_modifiers?.CapacityMultiplier ?? 1f)));
+        : Math.Max(1, (int)MathF.Round(capacity * (_modifiers?.CapacityMultiplier ?? 1f) *
+            _persistentCapacityMultiplier));
 
     private static float FiniteOrZero(float value) => float.IsFinite(value) ? value : 0f;
 }
@@ -321,6 +397,10 @@ public sealed class EnemyState
     public float FacingYaw { get; internal set; }
     public int StrafeDirection { get; internal set; } = 1;
     public int CurrentBossPhaseIndex { get; internal set; }
+    public float ControlImpairmentSeconds { get; internal set; }
+    public float DamageOverTimeRemaining { get; internal set; }
+    public float DamageOverTimePerSecond { get; internal set; }
+    public string? DamageOverTimeSourceId { get; internal set; }
     public EnemyActionState ActionState { get; internal set; }
     public Vector3 ChargeDirection { get; internal set; }
     public EnemyAttackKind PendingAttackKind { get; internal set; }
@@ -345,6 +425,7 @@ public sealed class PendingEnemySpawn
     public float RemainingSeconds { get; internal set; }
     public bool IsElite { get; init; }
     public float HealthFraction { get; init; } = 1f;
+    public bool SafetyImpulseApplied { get; internal set; }
 }
 
 public sealed class RelayObjectiveState
@@ -362,6 +443,7 @@ public sealed class PickupState
     public required Vector3 Position { get; init; }
     public int Amount { get; init; }
     public string? WeaponId { get; init; }
+    public EquipmentInstance? Equipment { get; init; }
     public float RespawnSeconds { get; init; }
     public float RespawnRemainingSeconds { get; internal set; }
     public bool IsAvailable { get; internal set; } = true;
@@ -375,15 +457,20 @@ public sealed class ProjectileState
     public Vector3 Position { get; internal set; }
     public Vector3 PreviousPosition { get; internal set; }
     public Vector3 Origin { get; init; }
-    public Vector3 Velocity { get; init; }
+    public Vector3 Velocity { get; internal set; }
     public float Radius { get; init; }
     public float Damage { get; init; }
     public string? WeaponId { get; init; }
+    public WeaponBehavior BehaviorFlags { get; init; }
+    public ProjectileMotionMode Motion { get; init; } = ProjectileMotionMode.Straight;
+    public float WeakPointMultiplier { get; init; } = 1f;
     public bool IsHostile { get; init; }
     public bool TargetsRelay { get; init; }
     public float SplashRadius { get; init; }
     public float ChainRadius { get; init; }
     public int ChainTargets { get; init; }
     public Vector3 Color { get; init; } = new(0.35f, 0.92f, 1f);
+    public float InitialLifetimeSeconds { get; init; }
     public float RemainingSeconds { get; internal set; }
+    public bool HasReversed { get; internal set; }
 }

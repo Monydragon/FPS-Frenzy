@@ -73,6 +73,18 @@ public sealed class RobotMaterialFallbackTests
             precision: 4);
     }
 
+    [Fact]
+    public void StaticPresenterMultipliesTintWithoutErasingAuthoredMaterialColor()
+    {
+        Vector3 authored = new(0.8f, 0.35f, 0.1f);
+
+        Vector3 untinted = StaticModelPresenter.ComposeMaterialColor(authored, null);
+        Vector3 tinted = StaticModelPresenter.ComposeMaterialColor(authored, new Vector3(0.5f, 1f, 2f));
+
+        AssertVectorNear(authored, untinted);
+        AssertVectorNear(new Vector3(0.4f, 0.35f, 0.2f), tinted);
+    }
+
     private static void AssertVectorNear(Vector3 expected, Vector3 actual)
     {
         Assert.Equal(expected.X, actual.X, precision: 4);

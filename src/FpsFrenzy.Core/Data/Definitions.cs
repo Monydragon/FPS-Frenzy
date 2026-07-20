@@ -16,6 +16,7 @@ public enum ShotMode
 {
     Hitscan,
     Projectile,
+    ContinuousBeam,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<TriggerMode>))]
@@ -24,6 +25,9 @@ public enum TriggerMode
     SemiAutomatic,
     Automatic,
     Burst,
+    Charge,
+    Continuous,
+    Spool,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<EnemyBehavior>))]
@@ -43,12 +47,58 @@ public enum PickupType
     Health,
     Ammo,
     Weapon,
+    Equipment,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<DifficultyMode>))]
 public enum DifficultyMode
 {
-    Standard,
+    Casual = 0,
+    Easy = 1,
+    Normal = 2,
+    Standard = Normal,
+    Hard = 3,
+    VeryHard = 4,
+    Extreme = 5,
+}
+
+public sealed record DifficultyDefinition(
+    DifficultyMode Mode,
+    string DisplayName,
+    float EnemyHealthMultiplier,
+    float EnemyDamageMultiplier,
+    float AttackIntervalMultiplier,
+    float ProjectileSpeedMultiplier,
+    float TellDurationMultiplier);
+
+public static class DifficultyCatalog
+{
+    public static IReadOnlyList<DifficultyDefinition> All { get; } =
+    [
+        new(DifficultyMode.Casual, "CASUAL", 0.70f, 0.45f, 1.25f, 0.82f, 1.30f),
+        new(DifficultyMode.Easy, "EASY", 0.85f, 0.70f, 1.12f, 0.92f, 1.15f),
+        new(DifficultyMode.Normal, "NORMAL", 1.00f, 1.00f, 1.00f, 1.00f, 1.00f),
+        new(DifficultyMode.Hard, "HARD", 1.10f, 1.18f, 0.94f, 1.05f, 0.95f),
+        new(DifficultyMode.VeryHard, "VERY HARD", 1.20f, 1.38f, 0.88f, 1.10f, 0.90f),
+        new(DifficultyMode.Extreme, "EXTREME", 1.32f, 1.62f, 0.82f, 1.15f, 0.85f),
+    ];
+
+    public static DifficultyMode Normalize(DifficultyMode mode) => mode switch
+    {
+        DifficultyMode.Casual => DifficultyMode.Casual,
+        DifficultyMode.Easy => DifficultyMode.Easy,
+        DifficultyMode.Normal => DifficultyMode.Normal,
+        DifficultyMode.Hard => DifficultyMode.Hard,
+        DifficultyMode.VeryHard => DifficultyMode.VeryHard,
+        DifficultyMode.Extreme => DifficultyMode.Extreme,
+        _ => DifficultyMode.Normal,
+    };
+
+    public static DifficultyDefinition Get(DifficultyMode mode)
+    {
+        DifficultyMode normalized = Normalize(mode);
+        return All.First(definition => definition.Mode == normalized);
+    }
 }
 
 public sealed record WeaponDefinition
@@ -57,6 +107,13 @@ public sealed record WeaponDefinition
     public required string Id { get; init; }
     public required string DisplayName { get; init; }
     public required string ModelAsset { get; init; }
+    public string IconAsset { get; init; } = "Textures/UI/menu-emblem";
+    public WeaponFamily Family { get; init; }
+    public Handedness Handedness { get; init; } = Handedness.TwoHanded;
+    public int BaseTier { get; init; } = 1;
+    public WeaponBehavior BehaviorFlags { get; init; }
+    public List<WeaponEffectDefinition> Effects { get; init; } = [];
+    public string? TaughtAbilityId { get; init; }
     public AmmoMode AmmoMode { get; init; }
     public ShotMode ShotMode { get; init; }
     public TriggerMode TriggerMode { get; init; } = TriggerMode.Automatic;
@@ -90,6 +147,17 @@ public sealed record WeaponDefinition
     public float AdsFieldOfViewDegrees { get; init; } = 55f;
     public Vector3 ViewModelHipOffset { get; init; } = new(0.32f, -0.28f, -0.55f);
     public Vector3 ViewModelAdsOffset { get; init; } = new(0f, -0.17f, -0.42f);
+    // Quaternius' modular weapons point down local +X. Keeping the source-axis
+    // calibration in data lets first-person presentation point the muzzle down
+    // camera -Z without changing the model's world/pickup orientation.
+    public float ViewModelTargetSpan { get; init; } = 0.65f;
+    public float ViewModelYawDegrees { get; init; } = 90f;
+    public float ViewModelPitchDegrees { get; init; }
+    public float ViewModelRollDegrees { get; init; }
+    public ProjectileMotionMode ProjectileMotion { get; init; } = ProjectileMotionMode.Straight;
+    public float WeakPointMultiplier { get; init; } = 1f;
+    public float ScopedSensitivityMultiplier { get; init; } = 1f;
+    public WeaponVisualDefinition Visual { get; init; } = new();
 }
 
 public sealed record EnemyDefinition
@@ -101,6 +169,7 @@ public sealed record EnemyDefinition
     public EnemyBehavior Behavior { get; init; } = EnemyBehavior.Chaser;
     public Dictionary<string, string> AnimationClips { get; init; } = [];
     public EnemyVisualDefinition Visual { get; init; } = new();
+    public List<EnemyWeakPointDefinition> WeakPoints { get; init; } = [];
     public float MaxHealth { get; init; }
     public float MoveSpeed { get; init; }
     public float ColliderRadius { get; init; }
@@ -136,6 +205,13 @@ public sealed record EnemyDefinition
     public float AmmoDropChance { get; init; }
 }
 
+public sealed record EnemyWeakPointDefinition
+{
+    public required string Id { get; init; }
+    public Vector3 Offset { get; init; }
+    public float Radius { get; init; } = 0.2f;
+}
+
 public sealed record BossPhaseDefinition
 {
     public required string Id { get; init; }
@@ -164,6 +240,7 @@ public sealed record ArenaDefinition
     public float FogStart { get; init; } = 24f;
     public float FogEnd { get; init; } = 72f;
     public float NavigationCellSize { get; init; } = 0.5f;
+    public ArenaTraversalMode TraversalMode { get; init; } = ArenaTraversalMode.SectorLocked;
     public List<Vector3> EnemySpawns { get; init; } = [];
     public List<ArenaPrimitiveDefinition> Primitives { get; init; } = [];
     public List<ArenaPropDefinition> Props { get; init; } = [];
@@ -186,6 +263,7 @@ public sealed record ArenaPrimitiveDefinition
     public bool HasCollision { get; init; } = true;
     public bool IsVisible { get; init; } = true;
     public bool IsEmissive { get; init; }
+    public ArenaCollisionRole CollisionRole { get; init; } = ArenaCollisionRole.None;
 }
 
 public sealed record ArenaPropDefinition
@@ -214,7 +292,7 @@ public sealed record WaveSetDefinition
 {
     public int SchemaVersion { get; init; } = 1;
     public required string Id { get; init; }
-    public DifficultyMode Difficulty { get; init; } = DifficultyMode.Standard;
+    public DifficultyMode Difficulty { get; init; } = DifficultyMode.Normal;
     public float InterWaveDelaySeconds { get; init; } = 4f;
     public List<WaveDefinition> Waves { get; init; } = [];
     public WaveDefinition? BossWave { get; init; }

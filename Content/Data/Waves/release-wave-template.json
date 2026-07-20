@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "release-ten-plus-boss",
-  "difficulty": "Standard",
+  "difficulty": "Normal",
   "interWaveDelaySeconds": 5.0,
   "waves": [
     { "id": "wave-01", "maximumConcurrentEnemies": 4, "spawnGroups": [{ "enemyId": "robot-striker", "count": 5 }] },

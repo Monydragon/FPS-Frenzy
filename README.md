@@ -2,9 +2,9 @@
 
 FPS Frenzy is an offline, single-player robot arena roguelite built with C# 14, .NET 10, and KNI (the MonoGame/XNA-compatible fork). It does not use Unity.
 
-Each Standard run sends the player through three seeded sectors of the 72-by-56-meter Orbital Depot. Every sector contains a Purge, Relay Defense, and Elite Hunt encounter. Combat closes the sector gates, robot reinforcements arrive through telegraphed portals, and each completed encounter pauses for one of three non-stacking upgrade choices. After nine encounters, the run returns to the central arena for the three-phase Breach Walker fight.
+Each run sends the player through three seeded sectors of the continuously accessible 72-by-56-meter Orbital Depot. Every sector contains a Purge, Relay Defense, and Elite Hunt encounter. The sectors provide visual identity and objective direction without invisible barriers: players and enemies can cross the complete unobstructed floor during every encounter and the boss fight. Robot reinforcements arrive through telegraphed portals, and each completed encounter pauses for one of three non-stacking upgrade choices. After nine encounters, the run returns to the central arena for the three-phase Breach Walker fight.
 
-The player keeps the classic 7.5 m/s run-and-jump moveset and can carry all six weapons. A chosen starting weapon opens the run; a seeded central armory offer appears after each of the first five encounters, allowing the full arsenal to be assembled during the run. Collected weapons become future loadout options, while challenge unlocks add new upgrades to the offer pool without granting permanent health, damage, or defense.
+The player keeps the classic 7.5 m/s run-and-jump moveset while using slot-authentic persistent equipment: armor, two accessories, two rings, and two swappable weapon sets with independent right/left hands. One-handed weapons can be dual-wielded and two-handed weapons reserve both hands. All 50 behavioral weapon bases across ten proficiency families are available as Common armory issues on a fresh profile, including scoped Precision rifles, SMGs, Heavy weapons, and Experimental weapons. Item Power, rarity, affixes, talents, learned equipment abilities, and ten selectable threat tiers provide persistent RPG progression. Casual, Easy, Normal, Hard, Very Hard, and Extreme independently tune combat behavior; the nine three-choice boons remain temporary run modifiers.
 
 The release enemy faction uses textured Quaternius robots: Striker, Interceptor, Juggernaut, Wasp, Warden, and the Breach Walker boss. Their authored albedo textures, calibrated placement, telegraphed attacks, state-driven animation, hit reactions, held death poses, emissive accents, and camera-facing health bars replace the former flat-tinted monster presentation. Authored CC0 sound effects and music replace generated tones.
 
@@ -36,36 +36,41 @@ Desktop uses SDL2/OpenGL. Android uses OpenGL ES, landscape touch controls, and 
 
 ## Gameplay loop
 
-The main menu provides Continue Run when a checkpoint exists, Start New Run, Loadout, Records, Settings, Accessibility, and Quit. A first-run card explains the controls and objectives.
+The main menu provides Continue/New Run, Character, Inventory, Armory, Abilities, Proficiencies, Difficulty/Threat Tier, Loadout, Debug Lab, Records, Settings, Accessibility, and Quit. Debug Lab is a non-persistent, invulnerable arena sandbox containing every release enemy and one equipment drop of each rarity; J/K or `[`/`]` cycles all 50 weapons. Inventory/loadout changes and free talent respecs are between-run or recovery-hub actions. A first-run card explains the controls and objectives.
 
 The complete loop is:
 
 ```text
-Main Menu -> Loadout -> New/Continue Run -> 3 sectors / 9 encounters
-          -> 9 upgrade rewards -> Breach Walker -> Results -> Retry/Menu
+Main Menu -> Character/Loadout/Difficulty/Threat Tier -> New/Continue Run
+          -> encounter -> recovery loot/cache -> boon/checkpoint (x9)
+          -> Breach Walker -> Results/unlocks -> Retry/Menu
 ```
 
-Checkpoints are written only after an upgrade is selected, so Continue reconstructs the next encounter from the saved run seed. Victory, defeat, or abandoning the run clears the checkpoint. Results record the seed, time, score, kills, damage taken, sectors completed, upgrades, unlocks, and whether God Mode was used.
+Checkpoints are written only after recovery and boon selection, so persistent XP, proficiency XP, equipment AP, and loot commit exactly once. Defeat keeps the current encounter's earned progress; explicit abandonment restores the last completed checkpoint. Results include difficulty and threat tier, both starting weapon sets, XP/levels, per-weapon proficiency gains, mastered abilities, loot rarity totals, highest Item Power, unlocks, and the God Mode marker.
 
 ## Controls
 
 - Move: WASD, left stick, or Android left touch stick
 - Look: mouse, right stick, or Android right look region; optional Android gyro adds fine aim
-- Fire: left mouse, right trigger, or FIRE touch button
-- ADS: hold right mouse/left trigger; Android ADS toggles
-- Reload: R, gamepad X, or reload touch button
+- Fire Right: left mouse, right trigger, or right FIRE touch button
+- Fire Left: right mouse, left trigger, or left FIRE touch button
+- ADS: Shift, gamepad LB, or the Android ADS toggle
+- Interact/loot: E, gamepad Y, or the context touch prompt
+- Abilities: Q/F, gamepad B/RB, or the two ability touch buttons
+- Reload both eligible hands: R, gamepad X, or reload touch button; either hand may keep firing while the other reloads
+- Select weapon set: 1/2 or mouse wheel, D-pad Left/Right, or the touch set-swap button
 - Jump: Space, gamepad A, or JUMP touch button
-- Weapons: number keys, mouse wheel, gamepad shoulders, or PREV/NEXT touch buttons
 - Menus: arrow keys/D-pad or pointer/touch; Enter/Space/A selects; Escape/Back/B returns
 - Pause: Escape/Back, gamepad Start, or the Android PAUSE button
-- Settings: F2
-- Accessibility: F3
 - God Mode: toggle in Settings; the HUD displays a badge while enabled
 - Debug test sandbox: F1 toggles the diagnostic HUD without writing records or checkpoints
+- Debug RPG grant: F2 while the debug sandbox is enabled
+- Debug rarity/loot showcase: F3 while the debug sandbox is enabled
 - Debug collision view: F4 while the debug sandbox is enabled
 - Debug stage controls: F5 restarts, F6/F7 move between stages, F8 toggles test invulnerability, and F9 completes the current encounter, reward, or boss
-- Still capture: F12
-- Motion-frame capture: F11 starts or stops a 15-second, 60 FPS PNG sequence
+- Weapon/Arena Lab: select Debug Lab from the main menu or press F11 during a run; use J/K or `[`/`]` for weapons, `-`/`+` for difficulty, Page Down/Page Up for Threat Tier, I to spawn, O to freeze AI, T to teleport sectors, and F12 to hot-reload numeric weapon JSON
+- Still capture: Shift+F12
+- Motion-frame capture: Shift+F11 starts or stops a 15-second, 60 FPS PNG sequence
 - Exit desktop: F10
 
 God Mode defaults off and affects only incoming player damage. It does not change enemy AI, weapons, objectives, pickups, score, challenge unlocks, or starting-weapon unlocks. Enabling it at any point marks that run's results, and God Mode runs do not replace the best unassisted record.
@@ -77,14 +82,14 @@ For automated developer runs, set `FPS_FRENZY_DEBUG=1`. Optional `FPS_FRENZY_DEB
 Settings, profile progression, and the active checkpoint are separate versioned files in the platform's local application-data `FPSFrenzy` directory:
 
 - `settings.json` stores controls, graphics, accessibility, Master/Music/SFX volumes, and God Mode.
-- `profile-v1.json` stores starting-weapon and upgrade unlocks, challenge progress, tutorial state, lifetime totals, and run records.
-- `run-checkpoint-v2.json` stores the seed, onboarding-order marker, next encounter, cumulative run/player state, owned upgrades, collected weapons, selected weapon, armory state, and God Mode marker.
+- `profile-v2.json` (schema 3) and its generation-matched `.stash` store level/XP, talents, salvage, proficiency, ability mastery/loadout, difficulty, both starter weapon sets, threat unlocks, equipped item IDs, unlimited stash, legacy discovery history, and records.
+- `run-checkpoint-v4.json` stores deterministic encounter state, difficulty, both weapon sets and independent states, issued items, pending progression and loot, recovery cache, ability cooldowns, drop serial, and run-result deltas.
 
-Profile and checkpoint writes use a temporary file followed by an atomic replacement. Missing, corrupt, or unsupported versions fall back safely without overwriting settings.
+Profile and stash writes use matching atomic generations and paired backups. A mismatch, corruption, or unsupported version loads the newest matching backup without overwriting settings. Schema-v1 profiles migrate to starter Scout armor and a Common Item Power 1 Pulse Sidearm.
 
 ## Render and motion captures
 
-F12 writes the final backbuffer to `artifacts/render-captures`. F11 records numbered PNG frames under a named subdirectory in the same location; it does not require ffmpeg at runtime.
+Shift+F12 writes the final backbuffer to `artifacts/render-captures`. Shift+F11 records numbered PNG frames under a named subdirectory in the same location; it does not require ffmpeg at runtime.
 
 For an automated recording and MP4 encode, run:
 
@@ -93,7 +98,7 @@ powershell -ExecutionPolicy Bypass -File tools/Capture-Motion.ps1 `
   -Name robot-arena-reel -FramesPerSecond 60 -Seconds 10
 ```
 
-The helper launches the desktop game in capture mode, writes the frame sequence, and invokes ffmpeg to create `artifacts/render-captures/robot-arena-reel.mp4`. `-FramesPerSecond` accepts 30 or 60, `-Seconds` accepts 1 through 30, and `-StartingEncounter`, `-StartingWeapon`, and `-RunSeed` make the scenario repeatable. Captures use Standard with God Mode off by default; `-GodMode` is available for uninterrupted presentation reels and remains visibly marked in any results screen. ffmpeg is a development dependency only.
+The helper launches the desktop game in capture mode, writes the frame sequence, and invokes ffmpeg to create `artifacts/render-captures/robot-arena-reel.mp4`. `-FramesPerSecond` accepts 30 or 60; `-StartingEncounter`, `-StartingWeapon`, `-LeftWeapon`, `-SetBWeapon`, `-ThreatTier`, and `-RunSeed` make weapon, set-swap, and threat scenarios repeatable. `-AimDownSights` records the family focus/scope presentation and `-DebugLab` records the populated sandbox. Captures use Normal with God Mode off by default; `-GodMode` is available for uninterrupted presentation reels. ffmpeg is a development dependency only.
 
 The deterministic Character Lab captures the six schema-v2 robots independently of gameplay saves and settings. This command writes 15 stills per robot (Idle, Locomotion, Attack, Hit, and Death at near, medium, and far distance), then exact ten-second 30 and 60 FPS state reels:
 
@@ -102,5 +107,22 @@ powershell -ExecutionPolicy Bypass -File tools/Capture-CharacterLab.ps1
 ```
 
 Use `-Enemy robot-striker`, `-Mode Stills`, `-Mode Reels`, or `-FrameRates 60` to narrow a run. Character Lab always renders at 1280x720; its numbered frames remain available beside the ffmpeg-encoded MP4 files under `artifacts/character-lab`.
+
+The Item Lab runner covers all 50 weapon bases, a representative dual-wield pair, two-handed handling, automatic Set A-to-Set B footage, scoped Precision ADS/reload presentation, still extraction, 30/60 FPS reels, and optional Tier I-X boundary captures:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/Capture-ItemLab.ps1 `
+  -Mode All -FramesPerSecond 60 -CaptureTierBoundaries
+```
+
+Use `-Weapon pulse-sidearm,gravity-lobber`, `-DualWieldPair pulse-sidearm:nova-pistol`, or `-Mode Stills` for a smaller deterministic capture set. Output is written under `artifacts/item-lab`.
+
+Weapon bases and archetypes are JSON-driven. To validate that every declared model exists and is registered with the KNI content pipeline, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/Sync-WeaponContent.ps1
+```
+
+Pass `-Update` to register newly declared FBX model assets automatically. Numeric JSON changes can be reloaded from the desktop F11 lab; new or changed models still require a content rebuild.
 
 See [architecture.md](docs/architecture.md) for system boundaries and [asset-sources.md](docs/asset-sources.md) for asset provenance and licenses.

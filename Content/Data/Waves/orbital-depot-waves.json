@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "orbital-depot-waves",
-  "difficulty": "Standard",
+  "difficulty": "Normal",
   "interWaveDelaySeconds": 5.0,
   "waves": [
     { "id": "cargo-breach", "maximumConcurrentEnemies": 4, "spawnIntervalSeconds": 0.6, "spawnGroups": [ { "enemyId": "robot-striker", "count": 5 } ] },

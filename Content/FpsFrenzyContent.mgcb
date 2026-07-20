@@ -26,6 +26,22 @@
 /copy:Data/Weapons/beam-rifle.json
 /copy:Data/Weapons/plasma-launcher.json
 /copy:Data/Weapons/arc-cannon.json
+/copy:Data/Weapons/smg.json
+/copy:Data/Weapons/precision.json
+/copy:Data/Weapons/heavy.json
+/copy:Data/Weapons/experimental.json
+/copy:Data/WeaponArchetypes/pulse.json
+/copy:Data/WeaponArchetypes/smg.json
+/copy:Data/WeaponArchetypes/burst.json
+/copy:Data/WeaponArchetypes/scatter.json
+/copy:Data/WeaponArchetypes/precision.json
+/copy:Data/WeaponArchetypes/beam.json
+/copy:Data/WeaponArchetypes/plasma.json
+/copy:Data/WeaponArchetypes/arc.json
+/copy:Data/WeaponArchetypes/heavy.json
+/copy:Data/WeaponArchetypes/experimental.json
+/copy:Data/WeaponBases/release-arsenal.json
+/copy:Data/WeaponVisuals/release-calibrations.json
 /copy:Data/Waves/orbital-depot-waves.json
 /copy:ThirdParty/asset-manifest.json
 
@@ -76,6 +92,270 @@
 /processorParam:GenerateMipmaps=False
 /processorParam:PremultiplyTextureAlpha=True
 /build:Models/Weapons/blaster-r.fbx
+
+
+#begin Models/Weapons/blaster-b.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-b.fbx
+
+#begin Models/Weapons/blaster-d.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-d.fbx
+
+#begin Models/Weapons/blaster-e.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-e.fbx
+
+#begin Models/Weapons/blaster-g.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-g.fbx
+
+#begin Models/Weapons/blaster-h.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-h.fbx
+
+#begin Models/Weapons/blaster-i.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-i.fbx
+
+#begin Models/Weapons/blaster-k.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-k.fbx
+
+#begin Models/Weapons/blaster-l.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-l.fbx
+
+#begin Models/Weapons/blaster-m.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-m.fbx
+
+#begin Models/Weapons/blaster-o.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-o.fbx
+
+#begin Models/Weapons/blaster-p.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-p.fbx
+
+#begin Models/Weapons/blaster-q.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/blaster-q.fbx
+#begin Models/Weapons/Quaternius/AR_1.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/AR_1.fbx
+
+#begin Models/Weapons/Quaternius/AR_2.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/AR_2.fbx
+
+#begin Models/Weapons/Quaternius/AR_3.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/AR_3.fbx
+
+#begin Models/Weapons/Quaternius/AR_4.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/AR_4.fbx
+
+#begin Models/Weapons/Quaternius/AR_5.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/AR_5.fbx
+
+#begin Models/Weapons/Quaternius/AR_6.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/AR_6.fbx
+
+#begin Models/Weapons/Quaternius/Crossbow_1.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Crossbow_1.fbx
+
+#begin Models/Weapons/Quaternius/Crossbow_2.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Crossbow_2.fbx
+
+#begin Models/Weapons/Quaternius/Grenade.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Grenade.fbx
+
+#begin Models/Weapons/Quaternius/Grenade_1.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Grenade_1.fbx
+
+#begin Models/Weapons/Quaternius/Grenade_2.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Grenade_2.fbx
+
+#begin Models/Weapons/Quaternius/Grenade_3.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Grenade_3.fbx
+
+#begin Models/Weapons/Quaternius/Pistol_1.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Pistol_1.fbx
+
+#begin Models/Weapons/Quaternius/Pistol_2.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Pistol_2.fbx
+
+#begin Models/Weapons/Quaternius/Pistol_3.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Pistol_3.fbx
+
+#begin Models/Weapons/Quaternius/SMG_1.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/SMG_1.fbx
+
+#begin Models/Weapons/Quaternius/SMG_2.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/SMG_2.fbx
+
+#begin Models/Weapons/Quaternius/Sniper_1.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Sniper_1.fbx
+
+#begin Models/Weapons/Quaternius/Sniper_2.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Sniper_2.fbx
+
+#begin Models/Weapons/Quaternius/Sniper_3.fbx
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Weapons/Quaternius/Sniper_3.fbx
+
+#begin Models/Player/operator-robot.assbin
+/importer:FbxImporter
+/processor:ModelProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyTextureAlpha=True
+/build:Models/Player/operator-robot.assbin
 
 #begin Models/Enemies/Robots/Leela.assbin
 /importer:FbxImporter

@@ -30,6 +30,7 @@
       "death": { "clipName": "Death", "loopMode": "PlayOnceHold" }
     }
   },
+  "weakPoints": [{ "id": "core", "offset": { "x": 0.0, "y": 2.15, "z": 0.0 }, "radius": 0.30 }],
   "maxHealth": 240.0,
   "moveSpeed": 2.6,
   "colliderRadius": 0.82,

@@ -16,11 +16,61 @@ public sealed class ContentValidationTests
         ContentCatalog catalog = ContentCatalog.LoadFromDirectory(Path.Combine(root, "Content", "Data"));
 
         Assert.True(catalog.Validate().IsValid);
-        Assert.Equal(6, catalog.Weapons.Count);
+        Assert.Equal(50, catalog.Weapons.Count);
         Assert.Equal(12, catalog.Enemies.Count);
         Assert.Equal(6, catalog.Enemies.Values.Count(enemy => enemy.SchemaVersion == 2));
         Assert.Contains("training-ring", catalog.Arenas);
         Assert.Contains("orbital-depot", catalog.Arenas);
+    }
+
+    [Fact]
+    public void PackagedStreamCatalogResolvesTheDataDrivenReleaseArsenalBeforeValidation()
+    {
+        string root = FindRepositoryRoot();
+        string data = Path.Combine(root, "Content", "Data");
+        string[] weaponIds = ["pulse-sidearm", "burst-carbine", "scatter-blaster", "beam-rifle",
+            "plasma-launcher", "arc-cannon", "smg", "precision", "heavy", "experimental"];
+        string[] archetypeIds = ["pulse", "smg", "burst", "scatter", "precision", "beam", "plasma", "arc",
+            "heavy", "experimental"];
+        string[] enemyIds = ["robot-striker", "robot-interceptor", "robot-juggernaut", "robot-wasp", "robot-warden", "breach-walker"];
+        List<Stream> streams = [];
+        try
+        {
+            Stream[] weapons = weaponIds.Select(id => (Stream)File.OpenRead(
+                Path.Combine(data, "Weapons", $"{id}.json"))).ToArray();
+            Stream[] enemies = enemyIds.Select(id => (Stream)File.OpenRead(
+                Path.Combine(data, "Enemies", $"{id}.json"))).ToArray();
+            Stream[] arenas = [(Stream)File.OpenRead(Path.Combine(data, "Arenas", "orbital-depot.json"))];
+            Stream[] waves = [(Stream)File.OpenRead(Path.Combine(data, "Waves", "orbital-depot-waves.json"))];
+            Stream[] archetypes = archetypeIds.Select(id => (Stream)File.OpenRead(
+                Path.Combine(data, "WeaponArchetypes", $"{id}.json"))).ToArray();
+            Stream[] bases = [(Stream)File.OpenRead(Path.Combine(data, "WeaponBases", "release-arsenal.json"))];
+            Stream[] visuals = [(Stream)File.OpenRead(Path.Combine(
+                data, "WeaponVisuals", "release-calibrations.json"))];
+            streams.AddRange(weapons);
+            streams.AddRange(enemies);
+            streams.AddRange(arenas);
+            streams.AddRange(waves);
+            streams.AddRange(archetypes);
+            streams.AddRange(bases);
+            streams.AddRange(visuals);
+
+            ContentCatalog catalog = ContentCatalog.Load(
+                weapons, enemies, arenas, waves, [], archetypes, bases, visuals);
+
+            Assert.True(catalog.Validate().IsValid);
+            Assert.Equal(50, catalog.Weapons.Count);
+            Assert.Equal(50, catalog.WeaponVisualCalibrations.Count);
+            Assert.All(catalog.Weapons.Values, weapon =>
+                Assert.Same(catalog.WeaponVisualCalibrations[weapon.Id], weapon.Visual));
+        }
+        finally
+        {
+            foreach (Stream stream in streams)
+            {
+                stream.Dispose();
+            }
+        }
     }
 
     [Fact]
@@ -82,7 +132,8 @@ public sealed class ContentValidationTests
             .Where(enemy => enemy.SchemaVersion == 2)
             .ToArray();
 
-        Assert.Equal(2, arena.SchemaVersion);
+        Assert.Equal(3, arena.SchemaVersion);
+        Assert.Equal(ArenaTraversalMode.OpenArena, arena.TraversalMode);
         Assert.Equal(4, arena.Sectors.Count);
         Assert.NotEqual(System.Numerics.Vector3.Zero, arena.BossArenaAnchor);
         Assert.DoesNotContain(arena.PickupSpawns, pickup => pickup.Type == PickupType.Weapon);
@@ -91,7 +142,6 @@ public sealed class ContentValidationTests
         Assert.All(arena.Sectors, sector =>
         {
             Assert.True(sector.SpawnPortals.Count >= 4);
-            Assert.NotEmpty(sector.EnergyGateIds);
             Assert.All(sector.SpawnPortals, portal => Assert.True(portal.TelegraphSeconds >= 0.75f));
         });
         Assert.True(arena.BoundsMax.X - arena.BoundsMin.X >= 70f);
@@ -111,6 +161,9 @@ public sealed class ContentValidationTests
                 .Where(primitive => primitive.HasCollision)
                 .Select(primitive => primitive.Id)
                 .Order(StringComparer.OrdinalIgnoreCase));
+        Assert.Single(arena.Primitives, primitive => primitive.CollisionRole == ArenaCollisionRole.Floor);
+        Assert.Equal(4, arena.Primitives.Count(primitive =>
+            primitive.CollisionRole == ArenaCollisionRole.OuterWall));
         Assert.DoesNotContain(
             arena.Props,
             prop => prop.Position.Y < 2.5f &&
@@ -298,6 +351,8 @@ public sealed class ContentValidationTests
         string[] expectedPacks =
         [
             "Kenney Blaster Kit",
+            "Quaternius Sci-Fi Modular Gun Pack",
+            "Quaternius Animated Robot Pack",
             "Quaternius Ultimate Monsters",
             "Kenney Survival Kit",
             "Kenney Modular Space Kit",

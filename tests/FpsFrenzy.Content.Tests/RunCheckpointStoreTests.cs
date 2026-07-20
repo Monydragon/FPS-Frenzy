@@ -1,4 +1,5 @@
 using FpsFrenzy.Core.Simulation;
+using FpsFrenzy.Core.Data;
 using FpsFrenzy.Kni.Progression;
 
 namespace FpsFrenzy.Content.Tests;
@@ -43,6 +44,51 @@ public sealed class RunCheckpointStoreTests : IDisposable
         Assert.Equal(checkpoint.ProfileUnlockBaselineIds, restored.ProfileUnlockBaselineIds);
         Assert.True(store.Clear());
         Assert.Null(store.Load());
+    }
+
+    [Fact]
+    public void VersionThreeCheckpointMigratesLegacyHandsIntoSetA()
+    {
+        RunCheckpointStore store = CreateStore();
+        RunCheckpoint checkpoint = new()
+        {
+            Seed = 19,
+            ArenaId = "orbital-depot",
+            StartingWeaponId = "pulse-sidearm",
+            Difficulty = DifficultyMode.Normal,
+            EquipmentItems =
+            [
+                new EquipmentInstance
+                {
+                    Id = "legacy-pulse",
+                    WeaponBaseId = "pulse-sidearm",
+                    DisplayName = "Pulse Sidearm",
+                    PrimarySlot = EquipmentSlot.RightHand,
+                    ItemPower = 1,
+                },
+            ],
+            EquipmentLoadout = new EquipmentLoadout
+            {
+                EquippedItemIds = { [EquipmentSlot.RightHand] = "legacy-pulse" },
+            },
+            HandWeaponStates = new Dictionary<EquipmentSlot, WeaponCheckpointState>
+            {
+                [EquipmentSlot.RightHand] = new() { WeaponId = "pulse-sidearm" },
+            },
+        };
+        Assert.True(store.Save(checkpoint));
+        string path = Path.Combine(_directory, "checkpoint.json");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            "\"SchemaVersion\": 5", "\"SchemaVersion\": 3", StringComparison.Ordinal));
+
+        RunCheckpoint migrated = Assert.IsType<RunCheckpoint>(store.Load());
+
+        Assert.Equal(RunCheckpoint.CurrentSchemaVersion, migrated.SchemaVersion);
+        Assert.Equal("pulse-sidearm", migrated.WeaponSetA.RightHand?.WeaponBaseId);
+        Assert.Null(migrated.WeaponSetB.RightHand);
+        Assert.Equal(0, migrated.ActiveWeaponSetIndex);
+        Assert.Equal("pulse-sidearm", migrated.WeaponQuickbar[0].RightHand?.WeaponBaseId);
+        Assert.True(migrated.WeaponQuickbar[1].IsEmpty);
     }
 
     [Theory]

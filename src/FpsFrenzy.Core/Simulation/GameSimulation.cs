@@ -51,6 +51,25 @@ public sealed class GameSimulation : IDisposable
     private float _emergencyBarrierSeconds;
     private float _damageAppliedThisTick;
     private PlayerButtons _previousButtons;
+    private int _lootDropSerial;
+    private PendingRunProgression _pendingProgression;
+    private RecoveryCache _recoveryCache;
+    private readonly Dictionary<string, EquipmentInstance> _equipmentItems;
+    private readonly Dictionary<string, float> _abilityCooldowns = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<WeaponState, float> _chargeSeconds = [];
+    private readonly Dictionary<WeaponState, int> _rampShots = [];
+    private readonly RuntimeWeaponSet[] _weaponSets = Enumerable.Range(0, WeaponQuickbarLoadout.SlotCount)
+        .Select(_ => new RuntimeWeaponSet()).ToArray();
+    private readonly Dictionary<string, WeaponState> _weaponStatesByItemId =
+        new(StringComparer.OrdinalIgnoreCase);
+    private int _pendingWeaponSetIndex = -1;
+    private int _runExperienceEarned;
+    private int _runLevelsGained;
+    private readonly Dictionary<WeaponFamily, int> _runProficiencyExperience = [];
+    private readonly HashSet<string> _runAbilitiesMastered = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _runCollectedItemIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<ItemRarity, int> _runRarityTotals = [];
+    private int _runHighestItemPower;
 
     public GameSimulation(ContentCatalog catalog, RunConfiguration configuration)
     {
@@ -58,6 +77,55 @@ public sealed class GameSimulation : IDisposable
         ArgumentNullException.ThrowIfNull(configuration);
         _configuration = configuration;
         _catalog = catalog;
+        Difficulty = DifficultyCatalog.Normalize(configuration.Checkpoint?.Difficulty ?? configuration.Difficulty);
+        ThreatTier = configuration.Checkpoint?.ThreatTier ?? configuration.ThreatTier;
+        if (ThreatTier is < ThreatTier.TierI or > ThreatTier.TierX)
+        {
+            throw new ArgumentOutOfRangeException(nameof(configuration), "Threat tier must be Tier I-X.");
+        }
+
+        Progression = configuration.Progression ?? new PlayerProgressionState();
+        if (ThreatTier > Progression.HighestUnlockedThreatTier && configuration.Progression is not null)
+        {
+            throw new ArgumentException("The selected threat tier has not been unlocked.", nameof(configuration));
+        }
+
+        _pendingProgression = configuration.Checkpoint?.PendingProgression ?? CreatePendingProgression(0);
+        _recoveryCache = configuration.Checkpoint?.RecoveryCache ?? new RecoveryCache();
+        _lootDropSerial = Math.Max(0, configuration.Checkpoint?.LootDropSerial ?? 0);
+        if (configuration.Checkpoint is RunCheckpoint progressionCheckpoint)
+        {
+            _runExperienceEarned = Math.Max(0, progressionCheckpoint.RunExperienceEarned);
+            _runLevelsGained = Math.Max(0, progressionCheckpoint.RunLevelsGained);
+            foreach ((WeaponFamily family, int amount) in progressionCheckpoint.RunProficiencyExperience)
+            {
+                _runProficiencyExperience[family] = Math.Max(0, amount);
+            }
+            _runAbilitiesMastered.UnionWith(progressionCheckpoint.RunAbilitiesMastered);
+            _runCollectedItemIds.UnionWith(progressionCheckpoint.RunCollectedItemIds);
+            foreach ((ItemRarity rarity, int count) in progressionCheckpoint.RunRarityTotals)
+            {
+                _runRarityTotals[rarity] = Math.Max(0, count);
+            }
+            _runHighestItemPower = Math.Max(0, progressionCheckpoint.RunHighestItemPower);
+        }
+        IEnumerable<EquipmentInstance> equipmentItems = configuration.Checkpoint?.EquipmentItems.Count > 0
+            ? configuration.Checkpoint.EquipmentItems
+            : configuration.StartingStash ?? Progression.Stash;
+        equipmentItems = equipmentItems.Concat(configuration.Checkpoint?.IssuedItemInstances ?? []);
+        _equipmentItems = equipmentItems
+            .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        EquipmentLoadout = configuration.Checkpoint?.EquipmentLoadout.EquippedItemIds.Count > 0
+            ? configuration.Checkpoint.EquipmentLoadout.Clone()
+            : configuration.StartingEquipment?.Clone() ?? Progression.Loadout.Clone();
+        if (configuration.Checkpoint is not null)
+        {
+            foreach ((string abilityId, float cooldown) in configuration.Checkpoint.AbilityCooldowns)
+            {
+                _abilityCooldowns[abilityId] = NonNegativeFinite(cooldown);
+            }
+        }
         string arenaId = configuration.Checkpoint?.ArenaId is string checkpointArenaId &&
             catalog.Arenas.ContainsKey(checkpointArenaId)
                 ? checkpointArenaId
@@ -73,6 +141,22 @@ public sealed class GameSimulation : IDisposable
         {
             throw new ArgumentException($"Unknown starting weapon '{startingWeaponId}'.", nameof(configuration));
         }
+
+        WeaponSetLoadout legacySet = CreateLegacyWeaponSet(EquipmentLoadout, startingWeaponId);
+        WeaponQuickbarLoadout requestedQuickbar = configuration.Checkpoint?.WeaponQuickbar is
+                { Slots.Count: WeaponQuickbarLoadout.SlotCount } checkpointQuickbar &&
+                checkpointQuickbar.Slots.Any(slot => !slot.IsEmpty)
+            ? checkpointQuickbar
+            : configuration.StartingWeaponQuickbar ?? WeaponQuickbarLoadout.FromLegacy(
+                configuration.Checkpoint?.WeaponSetA is { IsEmpty: false } checkpointSetA
+                    ? checkpointSetA
+                    : configuration.StartingWeaponSetA ?? legacySet,
+                configuration.Checkpoint?.WeaponSetB is { IsEmpty: false } checkpointSetB
+                    ? checkpointSetB
+                    : configuration.StartingWeaponSetB ?? new WeaponSetLoadout());
+        WeaponQuickbar = NormalizeWeaponQuickbar(requestedQuickbar);
+        WeaponSetA = WeaponQuickbar[0].ToWeaponSet();
+        WeaponSetB = WeaponQuickbar[1].ToWeaponSet();
 
         CurrentWaveIndex = 0;
         _navigation = new NavigationGrid(Arena);
@@ -91,7 +175,8 @@ public sealed class GameSimulation : IDisposable
                 catalog.Upgrades.Values,
                 configuration.UnlockedUpgradeIds,
                 configuration.Checkpoint,
-                configuration.IsFirstRun);
+                configuration.IsFirstRun,
+                catalog.Weapons);
         }
 
         SetPlayerInvulnerable(configuration.GodModeEnabled);
@@ -104,7 +189,9 @@ public sealed class GameSimulation : IDisposable
             MaximumHealth = 100f + (_runDirector?.Modifiers.MaximumHealthBonus ?? 0f),
             Health = 100f + (_runDirector?.Modifiers.MaximumHealthBonus ?? 0f),
         };
-        Player.Weapons.Add(new WeaponState(startingWeapon, _runDirector?.Modifiers));
+        InitializeWeaponSets(configuration, startingWeapon);
+        Player.MaximumHealth += CalculatePermanentMaximumHealthBonus();
+        Player.Health = Player.MaximumHealth;
         if (configuration.Checkpoint is not null)
         {
             foreach (string weaponId in configuration.Checkpoint.CollectedWeaponIds)
@@ -177,19 +264,62 @@ public sealed class GameSimulation : IDisposable
     public List<ProjectileState> Projectiles { get; } = [];
     public List<PendingEnemySpawn> PendingEnemySpawns { get; } = [];
     public GamePhase Phase { get; private set; } = GamePhase.Playing;
-    public DifficultyMode Difficulty => _configuration.Difficulty;
+    public DifficultyMode Difficulty { get; }
+    public ThreatTier ThreatTier { get; }
+    public PlayerProgressionState Progression { get; }
+    public PendingRunProgression PendingProgression => _pendingProgression;
+    public RecoveryCache RecoveryCache => _recoveryCache;
+    public EquipmentLoadout EquipmentLoadout { get; }
+    public WeaponSetLoadout WeaponSetA { get; private set; } = new();
+    public WeaponSetLoadout WeaponSetB { get; private set; } = new();
+    public WeaponQuickbarLoadout WeaponQuickbar { get; private set; } = new();
+    public int ActiveWeaponSlotIndex => Player.ActiveWeaponSetIndex;
+    public int ActiveWeaponSetIndex => Player.ActiveWeaponSetIndex;
+    public IReadOnlyList<bool> PopulatedWeaponSlots => WeaponQuickbar.Slots
+        .Select(slot => !slot.IsEmpty).ToArray();
+    public RuntimeWeaponSet GetWeaponSlotState(int slotIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slotIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slotIndex, WeaponQuickbarLoadout.SlotCount);
+        return _weaponSets[slotIndex];
+    }
+    public IReadOnlyDictionary<string, EquipmentInstance> EquipmentItems => _equipmentItems;
+    public IReadOnlyDictionary<string, float> AbilityCooldowns => _abilityCooldowns;
     public global::FpsFrenzy.Core.Simulation.RunPhase RunPhase =>
         _runDirector?.Phase ?? global::FpsFrenzy.Core.Simulation.RunPhase.LegacyWaves;
-    public RunSnapshot? RunSnapshot => _runDirector?.CreateSnapshot();
+    public RunSnapshot? RunSnapshot
+    {
+        get
+        {
+            if (_runDirector is null)
+            {
+                return null;
+            }
+
+            return _runDirector.CreateSnapshot() with
+            {
+                ThreatTier = ThreatTier,
+                PlayerLevel = Progression.Level,
+                PlayerExperience = Progression.Experience,
+                PlayerLevelsGained = _runLevelsGained,
+                ExperienceGained = _runExperienceEarned,
+                ProficiencyRanks = Progression.Proficiencies.Families.ToDictionary(
+                    pair => pair.Key, pair => pair.Value.Rank),
+                ProficiencyExperienceGained = new Dictionary<WeaponFamily, int>(_runProficiencyExperience),
+                AbilitiesMastered = _runAbilitiesMastered.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+                RarityTotals = new Dictionary<ItemRarity, int>(_runRarityTotals),
+                EquipmentCollected = _runCollectedItemIds.Count,
+                HighestItemPower = _runHighestItemPower,
+                Difficulty = Difficulty,
+                ActiveWeaponSetIndex = ActiveWeaponSetIndex,
+                ActiveWeaponSlotIndex = ActiveWeaponSlotIndex,
+            };
+        }
+    }
     public EncounterDefinition? CurrentEncounter => _runDirector?.CurrentEncounter;
     public ArenaSectorDefinition? ActiveSector => _runDirector?.CurrentEncounter is { } encounter
         ? _runDirector.SelectedSectors[encounter.SectorNumber - 1]
         : null;
-    public IReadOnlyList<string> ClosedEnergyGateIds =>
-        !_awaitingArmoryCollection &&
-        _runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.EncounterActive
-            ? ActiveSector?.EnergyGateIds ?? []
-            : [];
     public UpgradeOffer? CurrentUpgradeOffer => _runDirector?.CurrentOffer;
     public RunModifiers? RunModifiers => _runDirector?.Modifiers;
     public RelayObjectiveState? RelayObjective { get; private set; }
@@ -210,8 +340,127 @@ public sealed class GameSimulation : IDisposable
         .ToArray();
     public string SelectedWeaponId => Player.CurrentWeapon.Definition.Id;
     public bool AwaitingArmoryCollection => _awaitingArmoryCollection;
+    public bool DebugAiFrozen { get; private set; }
+    public bool DebugShowcaseActive { get; private set; }
     public float ObjectiveProgress => CalculateObjectiveProgress();
     public int CurrentPressureWaveNumber => _generatedPressureWaveIndex;
+
+    public bool ApplyCharacterManagement(
+        PlayerProgressionState managedProgression,
+        WeaponQuickbarLoadout managedQuickbar,
+        out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(managedProgression);
+        ArgumentNullException.ThrowIfNull(managedQuickbar);
+        if (Phase != GamePhase.Paused)
+        {
+            error = "Character management can only be applied while gameplay is paused.";
+            return false;
+        }
+
+        try
+        {
+            HashSet<string> previousActives = Progression.AbilityMastery.EquippedActiveAbilityIds
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Progression.Level = managedProgression.Level;
+            Progression.Experience = managedProgression.Experience;
+            Progression.UnspentTalentPoints = managedProgression.UnspentTalentPoints;
+            ReplaceDictionary(Progression.TalentRanks, managedProgression.TalentRanks);
+            ReplaceDictionary(Progression.Proficiencies.Families, managedProgression.Proficiencies.Families);
+            ReplaceDictionary(Progression.AbilityMastery.Abilities, managedProgression.AbilityMastery.Abilities);
+            Progression.AbilityMastery.EquippedActiveAbilityIds.Clear();
+            Progression.AbilityMastery.EquippedActiveAbilityIds.AddRange(
+                managedProgression.AbilityMastery.EquippedActiveAbilityIds);
+            Progression.AbilityMastery.EquippedPassiveAbilityIds.Clear();
+            Progression.AbilityMastery.EquippedPassiveAbilityIds.AddRange(
+                managedProgression.AbilityMastery.EquippedPassiveAbilityIds);
+            Progression.HighestUnlockedThreatTier = managedProgression.HighestUnlockedThreatTier;
+            Progression.Materials.Scrap = managedProgression.Materials.Scrap;
+            Progression.Materials.Components = managedProgression.Materials.Components;
+            Progression.Materials.Cores = managedProgression.Materials.Cores;
+            Progression.Stash.Clear();
+            Progression.Stash.AddRange(managedProgression.Stash);
+            ReplaceDictionary(Progression.Loadout.EquippedItemIds,
+                managedProgression.Loadout.EquippedItemIds);
+            Progression.CommittedRewardIds.Clear();
+            Progression.CommittedRewardIds.UnionWith(managedProgression.CommittedRewardIds);
+
+            foreach (string abilityId in Progression.AbilityMastery.EquippedActiveAbilityIds
+                .Where(id => !previousActives.Contains(id)))
+            {
+                if (_catalog.Abilities.TryGetValue(abilityId, out EquipmentAbilityDefinition? ability))
+                {
+                    _abilityCooldowns[abilityId] = MathF.Max(
+                        _abilityCooldowns.GetValueOrDefault(abilityId), ability.CooldownSeconds);
+                }
+            }
+
+            foreach (string itemId in _equipmentItems.Values.Where(item => !item.IsRunBound)
+                .Select(item => item.Id).ToArray())
+            {
+                _equipmentItems.Remove(itemId);
+            }
+            foreach (EquipmentInstance item in managedProgression.Stash)
+            {
+                _equipmentItems[item.Id] = item;
+            }
+            ReplaceDictionary(EquipmentLoadout.EquippedItemIds,
+                managedProgression.Loadout.EquippedItemIds);
+
+            WeaponQuickbar = NormalizeWeaponQuickbar(managedQuickbar);
+            WeaponSetA = WeaponQuickbar[0].ToWeaponSet();
+            WeaponSetB = WeaponQuickbar[1].ToWeaponSet();
+            foreach (RuntimeWeaponSet set in _weaponSets)
+            {
+                set.RightHand = null;
+                set.LeftHand = null;
+                set.RightHandItemId = null;
+                set.LeftHandItemId = null;
+            }
+            HashSet<string> occupiedPersistentItems = new(StringComparer.OrdinalIgnoreCase);
+            for (int index = 0; index < WeaponQuickbarLoadout.SlotCount; index++)
+            {
+                InitializeWeaponSet(index, WeaponQuickbar[index].ToWeaponSet(), checkpoint: null,
+                    occupiedPersistentItems);
+            }
+            foreach ((string itemId, WeaponState state) in _weaponStatesByItemId)
+            {
+                if (_equipmentItems.TryGetValue(itemId, out EquipmentInstance? item))
+                {
+                    ApplyPersistentWeaponStats(state, item, refill: false);
+                }
+            }
+            int active = Player.ActiveWeaponSetIndex is >= 0 and < WeaponQuickbarLoadout.SlotCount &&
+                _weaponSets[Player.ActiveWeaponSetIndex].RightHand is not null
+                    ? Player.ActiveWeaponSetIndex
+                    : FindNextPopulatedWeaponSlot(Player.ActiveWeaponSetIndex, 1);
+            ActivateWeaponSet(active, emitEvent: false);
+            Player.IsAiming = false;
+            float previousHealth = Player.Health;
+            Player.MaximumHealth = 100f + CalculatePermanentMaximumHealthBonus() +
+                (_runDirector?.Modifiers.MaximumHealthBonus ?? 0f);
+            Player.Health = Math.Clamp(previousHealth, 0f, Player.MaximumHealth);
+            error = null;
+            return true;
+        }
+        catch (ArgumentException exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+    }
+
+    private static void ReplaceDictionary<TKey, TValue>(
+        IDictionary<TKey, TValue> target,
+        IEnumerable<KeyValuePair<TKey, TValue>> source)
+        where TKey : notnull
+    {
+        target.Clear();
+        foreach ((TKey key, TValue value) in source)
+        {
+            target[key] = value;
+        }
+    }
     public int CurrentPressureWaveTotal => _runDirector?.CurrentEncounter is EncounterDefinition encounter &&
         encounter.ObjectiveType is EncounterObjectiveType.Purge or EncounterObjectiveType.EliteHunt
             ? encounter.PressureWaveCount
@@ -302,8 +551,20 @@ public sealed class GameSimulation : IDisposable
         Player.AdrenalSeconds = MathF.Max(0f, Player.AdrenalSeconds - fixedDeltaSeconds);
         Player.PreviousPosition = Player.Position;
         UpdatePlayer(command, fixedDeltaSeconds);
+        UpdateAbilities(command, fixedDeltaSeconds);
+        if (_runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.RecoveryLoot &&
+            command.Has(PlayerButtons.Interact) && !_previousButtons.HasFlag(PlayerButtons.Interact))
+        {
+            CompleteRecovery();
+            _previousButtons = command.Buttons;
+            return;
+        }
         UpdateWeapons(command, fixedDeltaSeconds);
-        if (_runDirector is null)
+        if (DebugShowcaseActive)
+        {
+            // The arena lab owns its roster and loot; campaign portals/objectives stay dormant.
+        }
+        else if (_runDirector is null)
         {
             UpdateWaveDirector(fixedDeltaSeconds);
         }
@@ -313,9 +574,12 @@ public sealed class GameSimulation : IDisposable
         }
         if (Phase == GamePhase.Playing)
         {
-            UpdateEnemies(fixedDeltaSeconds);
+            if (!DebugAiFrozen)
+            {
+                UpdateEnemies(fixedDeltaSeconds);
+            }
             UpdateProjectiles(fixedDeltaSeconds);
-            UpdatePickups(fixedDeltaSeconds);
+            UpdatePickups(command, fixedDeltaSeconds);
             TryCompleteGeneratedBoss();
         }
         CleanupEnemies();
@@ -334,6 +598,7 @@ public sealed class GameSimulation : IDisposable
 
             Phase = GamePhase.Defeat;
             _runDirector?.Fail();
+            CommitFinalProgression(includeWorldEquipment: false);
         }
 
         _previousButtons = command.Buttons;
@@ -347,6 +612,10 @@ public sealed class GameSimulation : IDisposable
         }
 
         Phase = paused ? GamePhase.Paused : GamePhase.Playing;
+        if (paused)
+        {
+            Player.IsAiming = false;
+        }
         _previousButtons &= ~PlayerButtons.Pause;
     }
 
@@ -357,6 +626,114 @@ public sealed class GameSimulation : IDisposable
         {
             _runDirector?.MarkGodModeUsed();
         }
+    }
+
+    /// <summary>
+    /// Grants a deterministic block of RPG progress inside the non-persistent debug sandbox.
+    /// </summary>
+    public void DebugGrantRpgProgression()
+    {
+        Progression.AddExperience(2_500);
+        foreach (WeaponFamily family in Enum.GetValues<WeaponFamily>().Where(family => family != WeaponFamily.None))
+        {
+            Progression.Proficiencies.AddExperience(family, 1_000);
+        }
+        foreach (EquipmentAbilityDefinition ability in _catalog.Abilities.Values)
+        {
+            Progression.AbilityMastery.AddAbilityPoints(ability.Id, ability.RequiredAbilityPoints, _catalog);
+        }
+        AddEvent(CombatEventType.ProgressionCommitted, Player.Position, Player.Position,
+            Player.Id, Player.Id, "debug-rpg-grant", 2_500f);
+    }
+
+    /// <summary>
+    /// Drops one item of each rarity around the player for beam, interaction, comparison,
+    /// recovery-cache, and distance-culling tests.
+    /// </summary>
+    public void DebugSpawnLootShowcase()
+    {
+        ItemRarity[] rarities = Enum.GetValues<ItemRarity>();
+        for (int index = 0; index < rarities.Length; index++)
+        {
+            ItemRarity rarity = rarities[index];
+            EquipmentInstance generated = GenerateLoot(-9_000 - index, rarity);
+            EquipmentInstance item = generated with
+            {
+                Rarity = rarity,
+                UniqueEffectId = rarity == ItemRarity.Legendary
+                    ? generated.UniqueEffectId ?? "legendary-debug-showcase"
+                    : null,
+            };
+            float angle = index * (MathF.Tau / rarities.Length);
+            Vector3 position = Player.Position + new Vector3(MathF.Sin(angle) * 3f, 0f, MathF.Cos(angle) * 3f);
+            AddEquipmentDrop(item, position);
+        }
+    }
+
+    public void SetDebugAiFrozen(bool frozen) => DebugAiFrozen = frozen;
+
+    public EnemyState DebugSpawnEnemy(string enemyId)
+    {
+        if (!_catalog.Enemies.TryGetValue(enemyId, out EnemyDefinition? definition) || definition.IsBoss)
+        {
+            throw new ArgumentException($"Unknown non-boss debug enemy '{enemyId}'.", nameof(enemyId));
+        }
+
+        Vector3 forward = GetViewDirection();
+        forward.Y = 0f;
+        forward = forward.LengthSquared() < 0.001f ? -Vector3.UnitZ : Vector3.Normalize(forward);
+        Vector3 spawn = Player.Position + (forward * 12f);
+        spawn.X = Math.Clamp(spawn.X, Arena.BoundsMin.X + 1f, Arena.BoundsMax.X - 1f);
+        spawn.Y = 0f;
+        spawn.Z = Math.Clamp(spawn.Z, Arena.BoundsMin.Z + 1f, Arena.BoundsMax.Z - 1f);
+        return SpawnEnemyAt(enemyId, spawn, isElite: false);
+    }
+
+    /// <summary>
+    /// Populates the non-persistent arena lab with one of every release enemy and
+    /// one equipment drop of every rarity. Call this on a fresh debug simulation.
+    /// </summary>
+    public IReadOnlyList<EnemyState> DebugPopulateArenaShowcase()
+    {
+        DebugShowcaseActive = true;
+        EnemyDefinition[] definitions = _catalog.Enemies.Values
+            .Where(definition => definition.SchemaVersion >= 2)
+            .OrderBy(definition => definition.IsBoss)
+            .ThenBy(definition => definition.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        List<EnemyState> spawned = new(definitions.Length);
+        for (int index = 0; index < definitions.Length; index++)
+        {
+            float angle = index * (MathF.Tau / Math.Max(1, definitions.Length));
+            float radius = definitions[index].IsBoss ? 18f : 13f + ((index & 1) * 2f);
+            Vector3 position = Player.Position + new Vector3(
+                MathF.Sin(angle) * radius,
+                0f,
+                MathF.Cos(angle) * radius);
+            position.X = Math.Clamp(position.X, Arena.BoundsMin.X + 2f, Arena.BoundsMax.X - 2f);
+            position.Y = 0f;
+            position.Z = Math.Clamp(position.Z, Arena.BoundsMin.Z + 2f, Arena.BoundsMax.Z - 2f);
+            spawned.Add(SpawnEnemyAt(definitions[index].Id, position, isElite: false));
+        }
+
+        DebugSpawnLootShowcase();
+        return spawned;
+    }
+
+    public void DebugTeleportToSector(int sectorIndex)
+    {
+        if (Arena.Sectors.Count == 0)
+        {
+            return;
+        }
+
+        ArenaSectorDefinition sector = Arena.Sectors[Math.Abs(sectorIndex) % Arena.Sectors.Count];
+        Vector3 position = sector.ObjectiveAnchor + new Vector3(0f, PlayerEyeHeight, 0f);
+        _playerController.Teleport(position);
+        Player.Position = position;
+        Player.PreviousPosition = position;
+        Player.VerticalVelocity = 0f;
+        Player.IsGrounded = true;
     }
 
     /// <summary>
@@ -399,10 +776,28 @@ public sealed class GameSimulation : IDisposable
         _queuedSummons.Clear();
         Projectiles.RemoveAll(projectile => projectile.IsHostile);
         _runDirector.CompleteBoss();
+        UnlockNextThreatTier();
+        CommitFinalProgression(includeWorldEquipment: true);
         Phase = GamePhase.Victory;
         AddEvent(CombatEventType.EncounterCompleted, Arena.BossArenaAnchor, Player.Position,
             EntityId.None, Player.Id, "breach-walker-debug");
         return true;
+    }
+
+    public UpgradeOffer CompleteRecovery(bool takeAll = true)
+    {
+        if (_runDirector is null || _runDirector.Phase !=
+            global::FpsFrenzy.Core.Simulation.RunPhase.RecoveryLoot)
+        {
+            throw new InvalidOperationException("The run is not in recovery.");
+        }
+
+        if (takeAll)
+        {
+            _recoveryCache.TakeAll(_pendingProgression);
+        }
+
+        return _runDirector.CompleteRecovery();
     }
 
     public UpgradeDefinition ChooseUpgrade(string upgradeId)
@@ -414,7 +809,8 @@ public sealed class GameSimulation : IDisposable
 
         float previousMaximumHealth = Player.MaximumHealth;
         UpgradeDefinition selected = _runDirector.ChooseUpgrade(upgradeId);
-        Player.MaximumHealth = 100f + _runDirector.Modifiers.MaximumHealthBonus;
+        Player.MaximumHealth = 100f + CalculatePermanentMaximumHealthBonus() +
+            _runDirector.Modifiers.MaximumHealthBonus;
         if (Player.MaximumHealth > previousMaximumHealth)
         {
             Player.Health = MathF.Min(Player.MaximumHealth,
@@ -422,6 +818,14 @@ public sealed class GameSimulation : IDisposable
         }
 
         _emergencyBarrierAvailable = _runDirector.Modifiers.HasEmergencyBarrier;
+        if (CommitPendingProgression())
+        {
+            AddEvent(CombatEventType.ProgressionCommitted, Player.Position, Player.Position,
+                Player.Id, Player.Id, _pendingProgression.CommitId, _pendingProgression.Experience);
+        }
+
+        _pendingProgression = CreatePendingProgression(_runDirector.CurrentEncounterIndex);
+        _recoveryCache = new RecoveryCache();
         _awaitingArmoryCollection = Pickups.Any(IsActiveArmoryPickup);
         _generatedEncounterStarted = false;
         if (_runDirector.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.BossActive)
@@ -432,6 +836,238 @@ public sealed class GameSimulation : IDisposable
         AddEvent(CombatEventType.UpgradeApplied, Player.Position, Player.Position,
             Player.Id, Player.Id, selected.Id);
         return selected;
+    }
+
+    private PendingRunProgression CreatePendingProgression(int encounterIndex) => new()
+    {
+        CommitId = $"run-{_configuration.Seed}-tier-{(int)ThreatTier}-encounter-{encounterIndex + 1}",
+    };
+
+    private WeaponSetLoadout CreateLegacyWeaponSet(EquipmentLoadout loadout, string startingWeaponId)
+    {
+        StarterWeaponReference? ReferenceFor(EquipmentSlot slot)
+        {
+            string? itemId = loadout[slot];
+            return itemId is not null && _equipmentItems.TryGetValue(itemId, out EquipmentInstance? item) &&
+                item.WeaponBaseId is string weaponId
+                    ? new StarterWeaponReference { WeaponBaseId = weaponId, ItemInstanceId = itemId }
+                    : null;
+        }
+
+        StarterWeaponReference? right = ReferenceFor(EquipmentSlot.RightHand);
+        StarterWeaponReference? left = ReferenceFor(EquipmentSlot.LeftHand);
+        return new WeaponSetLoadout
+        {
+            RightHand = right ?? StarterWeaponReference.Issue(startingWeaponId),
+            LeftHand = left,
+        };
+    }
+
+    private WeaponSetLoadout NormalizeWeaponSet(WeaponSetLoadout requested, int setIndex)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        StarterWeaponReference? right = MaterializeReference(requested.RightHand, setIndex, "right");
+        StarterWeaponReference? left = MaterializeReference(requested.LeftHand, setIndex, "left");
+        WeaponDefinition? rightWeapon = ResolveWeapon(right);
+        WeaponDefinition? leftWeapon = ResolveWeapon(left);
+
+        if (rightWeapon?.Handedness == Handedness.TwoHanded)
+        {
+            if (leftWeapon is not null && !string.Equals(right?.ItemInstanceId, left?.ItemInstanceId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Weapon set {setIndex + 1} cannot pair a two-handed weapon.");
+            }
+            left = right;
+        }
+        else if (leftWeapon?.Handedness == Handedness.TwoHanded)
+        {
+            if (rightWeapon is not null && !string.Equals(right?.ItemInstanceId, left?.ItemInstanceId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Weapon set {setIndex + 1} cannot pair a two-handed weapon.");
+            }
+            right = left;
+        }
+        else if (right is not null && left is not null && string.Equals(
+            right.ItemInstanceId, left.ItemInstanceId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("A persistent one-handed item instance cannot occupy multiple positions.");
+        }
+
+        return new WeaponSetLoadout { RightHand = right, LeftHand = left };
+    }
+
+    private WeaponQuickbarLoadout NormalizeWeaponQuickbar(WeaponQuickbarLoadout requested)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        List<WeaponPresetSlot> slots = [];
+        for (int index = 0; index < WeaponQuickbarLoadout.SlotCount; index++)
+        {
+            WeaponSetLoadout normalized = NormalizeWeaponSet(requested[index].ToWeaponSet(), index);
+            slots.Add(WeaponPresetSlot.FromWeaponSet(normalized));
+        }
+        return new WeaponQuickbarLoadout { Slots = slots };
+    }
+
+    private StarterWeaponReference? MaterializeReference(
+        StarterWeaponReference? reference,
+        int setIndex,
+        string hand)
+    {
+        if (reference is null)
+        {
+            return null;
+        }
+        if (!_catalog.Weapons.TryGetValue(reference.WeaponBaseId, out WeaponDefinition? weapon))
+        {
+            throw new ArgumentException($"Unknown weapon base '{reference.WeaponBaseId}'.");
+        }
+
+        string itemId = reference.ItemInstanceId ??
+            $"issued-{_configuration.Seed}-set-{setIndex + 1}-{hand}-{weapon.Id}";
+        if (_equipmentItems.TryGetValue(itemId, out EquipmentInstance? existing))
+        {
+            if (!string.Equals(existing.WeaponBaseId, weapon.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Item '{itemId}' does not contain '{weapon.Id}'.");
+            }
+        }
+        else
+        {
+            _equipmentItems[itemId] = new EquipmentInstance
+            {
+                Id = itemId,
+                WeaponBaseId = weapon.Id,
+                DisplayName = $"{weapon.DisplayName} (Armory Issue)",
+                PrimarySlot = hand == "left" ? EquipmentSlot.LeftHand : EquipmentSlot.RightHand,
+                Rarity = ItemRarity.Common,
+                ItemPower = RpgProgressionMath.MinimumItemPower(ThreatTier),
+                IsLocked = true,
+                IsRunBound = true,
+            };
+        }
+
+        return reference with { ItemInstanceId = itemId };
+    }
+
+    private WeaponDefinition? ResolveWeapon(StarterWeaponReference? reference) =>
+        reference is not null && _catalog.Weapons.TryGetValue(reference.WeaponBaseId, out WeaponDefinition? weapon)
+            ? weapon
+            : null;
+
+    private void InitializeWeaponSets(RunConfiguration configuration, WeaponDefinition startingWeapon)
+    {
+        HashSet<string> occupiedPersistentItems = new(StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < WeaponQuickbarLoadout.SlotCount; index++)
+        {
+            InitializeWeaponSet(index, WeaponQuickbar[index].ToWeaponSet(), configuration.Checkpoint,
+                occupiedPersistentItems);
+        }
+        if (_weaponSets.All(set => set.RightHand is null))
+        {
+            WeaponState fallback = new(startingWeapon, _runDirector?.Modifiers);
+            Player.Weapons.Add(fallback);
+            _weaponSets[0].RightHand = fallback;
+            _weaponSets[0].RightHandItemId = WeaponQuickbar[0].RightHand?.ItemInstanceId;
+        }
+
+        int activeSet = Math.Clamp(
+            configuration.Checkpoint?.ActiveWeaponSlotIndex ?? configuration.Checkpoint?.ActiveWeaponSetIndex ?? 0,
+            0,
+            WeaponQuickbarLoadout.SlotCount - 1);
+        if (_weaponSets[activeSet].RightHand is null)
+        {
+            activeSet = FindNextPopulatedWeaponSlot(activeSet, 1);
+        }
+        ActivateWeaponSet(activeSet, emitEvent: false);
+
+        if (configuration.Checkpoint is not null && configuration.Checkpoint.WeaponSetStates.Count == 0)
+        {
+            foreach ((EquipmentSlot slot, WeaponCheckpointState savedState) in
+                configuration.Checkpoint.HandWeaponStates)
+            {
+                WeaponState? handState = slot == EquipmentSlot.RightHand
+                    ? Player.RightHandWeapon
+                    : slot == EquipmentSlot.LeftHand ? Player.LeftHandWeapon : null;
+                if (handState is not null && handState.Definition.Id.Equals(savedState.WeaponId,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    handState.RestoreCheckpointState(savedState);
+                }
+            }
+        }
+    }
+
+    private int FindNextPopulatedWeaponSlot(int current, int direction)
+    {
+        direction = direction < 0 ? -1 : 1;
+        for (int offset = 1; offset <= _weaponSets.Length; offset++)
+        {
+            int candidate = (current + (offset * direction) + _weaponSets.Length) % _weaponSets.Length;
+            if (_weaponSets[candidate].RightHand is not null)
+            {
+                return candidate;
+            }
+        }
+        return Math.Clamp(current, 0, _weaponSets.Length - 1);
+    }
+
+    private void InitializeWeaponSet(
+        int setIndex,
+        WeaponSetLoadout loadout,
+        RunCheckpoint? checkpoint,
+        HashSet<string> occupiedPersistentItems)
+    {
+        RuntimeWeaponSet runtime = _weaponSets[setIndex];
+        runtime.RightHandItemId = loadout.RightHand?.ItemInstanceId;
+        runtime.LeftHandItemId = loadout.LeftHand?.ItemInstanceId;
+        runtime.RightHand = CreateWeaponState(runtime.RightHandItemId, occupiedPersistentItems);
+        runtime.LeftHand = string.Equals(runtime.RightHandItemId, runtime.LeftHandItemId,
+                StringComparison.OrdinalIgnoreCase)
+            ? runtime.RightHand
+            : CreateWeaponState(runtime.LeftHandItemId, occupiedPersistentItems);
+
+        if (checkpoint?.WeaponSetStates.TryGetValue(setIndex, out WeaponSetCheckpointState? saved) == true)
+        {
+            RestoreWeaponSetHand(runtime.RightHand, saved.RightHand);
+            if (!ReferenceEquals(runtime.LeftHand, runtime.RightHand))
+            {
+                RestoreWeaponSetHand(runtime.LeftHand, saved.LeftHand);
+            }
+        }
+    }
+
+    private WeaponState? CreateWeaponState(string? itemId, HashSet<string> occupiedPersistentItems)
+    {
+        if (itemId is null || !_equipmentItems.TryGetValue(itemId, out EquipmentInstance? item) ||
+            item.WeaponBaseId is null || !_catalog.Weapons.TryGetValue(item.WeaponBaseId, out WeaponDefinition? weapon))
+        {
+            return null;
+        }
+        if (!item.IsRunBound && !occupiedPersistentItems.Add(itemId))
+        {
+            throw new ArgumentException($"Persistent item '{itemId}' occupies multiple weapon-set positions.");
+        }
+        if (_weaponStatesByItemId.TryGetValue(itemId, out WeaponState? existing))
+        {
+            return existing;
+        }
+
+        WeaponState state = new(weapon, _runDirector?.Modifiers);
+        ApplyPersistentWeaponStats(state, item, refill: true);
+        _weaponStatesByItemId[itemId] = state;
+        Player.Weapons.Add(state);
+        return state;
+    }
+
+    private static void RestoreWeaponSetHand(WeaponState? weapon, WeaponCheckpointState? saved)
+    {
+        if (weapon is not null && saved is not null && weapon.Definition.Id.Equals(
+            saved.WeaponId, StringComparison.OrdinalIgnoreCase))
+        {
+            weapon.RestoreCheckpointState(saved);
+        }
     }
 
     private void RestoreCheckpointState(RunCheckpoint checkpoint)
@@ -484,6 +1120,8 @@ public sealed class GameSimulation : IDisposable
         RunCheckpoint checkpoint = _runDirector.CreateCheckpoint(Arena.Id, Player.Weapons[0].Definition.Id);
         return checkpoint with
         {
+            Difficulty = Difficulty,
+            ThreatTier = ThreatTier,
             CollectedWeaponIds = Player.Weapons.Select(weapon => weapon.Definition.Id).ToList(),
             WeaponStates = Player.Weapons.Select(weapon => weapon.CreateCheckpointState()).ToList(),
             SelectedWeaponId = Player.CurrentWeapon.Definition.Id,
@@ -509,7 +1147,64 @@ public sealed class GameSimulation : IDisposable
             CompletedEliteEncounters = _completedEliteEncounters,
             LastCompletedEncounterObjective = LastCompletedEncounterObjective,
             LastCompletedEncounterMetric = LastCompletedEncounterMetric,
+            EquipmentLoadout = EquipmentLoadout.Clone(),
+            EquipmentItems = _equipmentItems.Values.OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase).ToList(),
+            HandWeaponStates = CreateHandWeaponCheckpointStates(),
+            WeaponSetA = WeaponSetA.Clone(),
+            WeaponSetB = WeaponSetB.Clone(),
+            ActiveWeaponSetIndex = ActiveWeaponSetIndex,
+            WeaponQuickbar = WeaponQuickbar.Clone(),
+            ActiveWeaponSlotIndex = ActiveWeaponSlotIndex,
+            WeaponSetStates = CreateWeaponSetCheckpointStates(),
+            IssuedItemInstances = _equipmentItems.Values
+                .Where(item => item.IsRunBound)
+                .OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            PendingProgression = _pendingProgression,
+            RecoveryCache = _recoveryCache,
+            LootDropSerial = _lootDropSerial,
+            AbilityCooldowns = new Dictionary<string, float>(_abilityCooldowns, StringComparer.OrdinalIgnoreCase),
+            RunExperienceEarned = _runExperienceEarned,
+            RunLevelsGained = _runLevelsGained,
+            RunProficiencyExperience = new Dictionary<WeaponFamily, int>(_runProficiencyExperience),
+            RunAbilitiesMastered = _runAbilitiesMastered.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            RunCollectedItemIds = _runCollectedItemIds.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            RunRarityTotals = new Dictionary<ItemRarity, int>(_runRarityTotals),
+            RunHighestItemPower = _runHighestItemPower,
         };
+    }
+
+    private Dictionary<EquipmentSlot, WeaponCheckpointState> CreateHandWeaponCheckpointStates()
+    {
+        Dictionary<EquipmentSlot, WeaponCheckpointState> states = [];
+        if (Player.RightHandWeapon is not null)
+        {
+            states[EquipmentSlot.RightHand] = Player.RightHandWeapon.CreateCheckpointState();
+        }
+
+        if (Player.LeftHandWeapon is not null)
+        {
+            states[EquipmentSlot.LeftHand] = Player.LeftHandWeapon.CreateCheckpointState();
+        }
+
+        return states;
+    }
+
+    private Dictionary<int, WeaponSetCheckpointState> CreateWeaponSetCheckpointStates()
+    {
+        Dictionary<int, WeaponSetCheckpointState> states = [];
+        for (int index = 0; index < _weaponSets.Length; index++)
+        {
+            RuntimeWeaponSet set = _weaponSets[index];
+            states[index] = new WeaponSetCheckpointState
+            {
+                RightHand = set.RightHand?.CreateCheckpointState(),
+                LeftHand = ReferenceEquals(set.LeftHand, set.RightHand)
+                    ? set.RightHand?.CreateCheckpointState()
+                    : set.LeftHand?.CreateCheckpointState(),
+            };
+        }
+        return states;
     }
 
     public Vector3 GetViewDirection()
@@ -521,13 +1216,19 @@ public sealed class GameSimulation : IDisposable
             -MathF.Cos(Player.Yaw) * cosinePitch));
     }
 
-    public Vector3 GetWeaponMuzzlePosition()
+    public Vector3 GetWeaponMuzzlePosition() =>
+        GetWeaponMuzzlePosition(Player.EffectiveRightHandWeapon.Definition, isLeftHand: false);
+
+    public Vector3 GetWeaponMuzzlePosition(WeaponDefinition weapon, bool isLeftHand)
     {
         Vector3 forward = GetViewDirection();
         Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
         Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
-        WeaponDefinition weapon = Player.CurrentWeapon.Definition;
         Vector3 offset = Player.IsAiming ? weapon.ViewModelAdsOffset : weapon.ViewModelHipOffset;
+        if (isLeftHand)
+        {
+            offset.X = -MathF.Abs(offset.X);
+        }
         float forwardDistance = Math.Clamp(-offset.Z + 0.15f, 0.5f, 0.9f);
         Vector3 desired = Player.Position +
             (right * offset.X * 0.95f) +
@@ -555,7 +1256,8 @@ public sealed class GameSimulation : IDisposable
         Player.Pitch = Math.Clamp(Player.Pitch + command.LookDelta.Y, -1.45f, 1.45f);
         Player.IsAiming = command.Has(PlayerButtons.AimDownSights);
 
-        if (command.WeaponSlot >= 0 && command.WeaponSlot < Player.Weapons.Count)
+        if (Arena.TraversalMode != ArenaTraversalMode.OpenArena &&
+            command.WeaponSlot >= 0 && command.WeaponSlot < Player.Weapons.Count)
         {
             Player.SelectedWeaponIndex = command.WeaponSlot;
         }
@@ -572,7 +1274,13 @@ public sealed class GameSimulation : IDisposable
             ? _runDirector?.Modifiers.KillMovementSpeedMultiplier ?? 1f
             : 1f;
         Vector3 desiredVelocity = ((right * moveInput.X) + (forward * moveInput.Y)) *
-            PlayerMoveSpeed * movementMultiplier;
+            PlayerMoveSpeed * CalculatePermanentMovementMultiplier() * movementMultiplier;
+        desiredVelocity += Player.ExternalVelocity;
+        Player.ExternalVelocity *= MathF.Exp(-6f * deltaSeconds);
+        if (Player.ExternalVelocity.LengthSquared() < 0.0001f)
+        {
+            Player.ExternalVelocity = Vector3.Zero;
+        }
 
         bool jumpPressed = command.Has(PlayerButtons.Jump) && !_previousButtons.HasFlag(PlayerButtons.Jump);
         PlayerPhysicsResult result = _playerController.Step(
@@ -580,74 +1288,393 @@ public sealed class GameSimulation : IDisposable
         Player.Position = result.Position;
         Player.VerticalVelocity = result.VerticalVelocity;
         Player.IsGrounded = result.IsGrounded;
-        ConstrainPlayerToActiveSector();
-    }
-
-    private void ConstrainPlayerToActiveSector()
-    {
-        if (_awaitingArmoryCollection)
-        {
-            return;
-        }
-
-        Vector3 constrained = Player.Position;
-        if (_runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.BossActive)
-        {
-            Vector3 halfExtents = Arena.BossArenaHalfExtents;
-            constrained.X = Math.Clamp(
-                constrained.X,
-                Arena.BossArenaAnchor.X - halfExtents.X + 0.5f,
-                Arena.BossArenaAnchor.X + halfExtents.X - 0.5f);
-            constrained.Z = Math.Clamp(
-                constrained.Z,
-                Arena.BossArenaAnchor.Z - halfExtents.Z + 0.5f,
-                Arena.BossArenaAnchor.Z + halfExtents.Z - 0.5f);
-            if (PendingEnemySpawns.Any(pending =>
-                    pending.PortalId.Equals("boss-core", StringComparison.OrdinalIgnoreCase)))
-            {
-                Vector3 fromCore = constrained - Arena.BossArenaAnchor;
-                fromCore.Y = 0f;
-                const float bossCoreSafetyRadius = 12f;
-                if (fromCore.LengthSquared() < bossCoreSafetyRadius * bossCoreSafetyRadius)
-                {
-                    float z = Math.Clamp(fromCore.Z, -bossCoreSafetyRadius + 0.01f,
-                        bossCoreSafetyRadius - 0.01f);
-                    float requiredX = MathF.Sqrt(MathF.Max(0f,
-                        (bossCoreSafetyRadius * bossCoreSafetyRadius) - (z * z)));
-                    float sign = fromCore.X < 0f ? -1f : 1f;
-                    constrained.X = Arena.BossArenaAnchor.X + (requiredX * sign);
-                    constrained.Z = Arena.BossArenaAnchor.Z + z;
-                }
-            }
-        }
-        else if (_runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.EncounterActive &&
-                 ActiveSector is ArenaSectorDefinition sector)
-        {
-            constrained.X = Math.Clamp(constrained.X, sector.BoundsMin.X + 0.5f, sector.BoundsMax.X - 0.5f);
-            constrained.Z = Math.Clamp(constrained.Z, sector.BoundsMin.Z + 0.5f, sector.BoundsMax.Z - 0.5f);
-        }
-        else
-        {
-            return;
-        }
-        if (Vector3.DistanceSquared(constrained, Player.Position) <= 0.000001f)
-        {
-            return;
-        }
-
-        _playerController.Teleport(constrained);
-        Player.Position = constrained;
-        Player.VerticalVelocity = 0f;
     }
 
     public void Dispose() => _playerController.Dispose();
 
+    private void UpdateAbilities(PlayerCommand command, float deltaSeconds)
+    {
+        foreach (string id in _abilityCooldowns.Keys.ToArray())
+        {
+            _abilityCooldowns[id] = MathF.Max(0f, _abilityCooldowns[id] - deltaSeconds);
+        }
+
+        if (command.Has(PlayerButtons.Ability1) && !_previousButtons.HasFlag(PlayerButtons.Ability1))
+        {
+            TryActivateAbility(0);
+        }
+
+        if (command.Has(PlayerButtons.Ability2) && !_previousButtons.HasFlag(PlayerButtons.Ability2))
+        {
+            TryActivateAbility(1);
+        }
+    }
+
+    public bool TryActivateAbility(int slotIndex)
+    {
+        if (slotIndex is < 0 or > 1 ||
+            slotIndex >= Progression.AbilityMastery.EquippedActiveAbilityIds.Count)
+        {
+            return false;
+        }
+
+        string abilityId = Progression.AbilityMastery.EquippedActiveAbilityIds[slotIndex];
+        if (!_catalog.Abilities.TryGetValue(abilityId, out EquipmentAbilityDefinition? ability) ||
+            ability.Kind != AbilityKind.Active || _abilityCooldowns.GetValueOrDefault(abilityId) > 0f ||
+            (!Progression.AbilityMastery.IsMastered(abilityId) && !GetTaughtAbilityIds().Contains(abilityId)))
+        {
+            return false;
+        }
+
+        float power = CalculateAbilityPowerMultiplier();
+        switch (abilityId)
+        {
+            case "barrier-pulse":
+            case "phase-guard":
+                _emergencyBarrierSeconds = MathF.Max(_emergencyBarrierSeconds, 2f * power);
+                break;
+            case "repair-drone":
+                Player.Health = MathF.Min(Player.MaximumHealth, Player.Health + (25f * power));
+                break;
+            case "ammo-synthesizer":
+                Player.EffectiveRightHandWeapon.AddAmmo((int)MathF.Round(24f * power));
+                Player.LeftHandWeapon?.AddAmmo((int)MathF.Round(24f * power));
+                break;
+            case "coolant-vent":
+                Player.EffectiveRightHandWeapon.AddAmmo((int)MathF.Round(40f * power));
+                Player.LeftHandWeapon?.AddAmmo((int)MathF.Round(40f * power));
+                break;
+            case "overclock":
+                Player.AdrenalSeconds = MathF.Max(Player.AdrenalSeconds, 3f * power);
+                break;
+            default:
+                DamageEnemiesInAbilityRadius(abilityId, power);
+                break;
+        }
+
+        _abilityCooldowns[abilityId] = ability.CooldownSeconds * CalculateAbilityCooldownMultiplier();
+        AddEvent(CombatEventType.AbilityActivated, Player.Position, Player.Position,
+            Player.Id, EntityId.None, abilityId, _abilityCooldowns[abilityId]);
+        return true;
+    }
+
+    private void DamageEnemiesInAbilityRadius(string abilityId, float power)
+    {
+        float radius = abilityId is "gravity-well" or "arc-nova" ? 10f : 7f;
+        float damage = abilityId == "target-mark" ? 65f : 42f;
+        foreach (EnemyState enemy in Enemies.Where(enemy => !enemy.IsDead &&
+            Vector3.DistanceSquared(enemy.Position, Player.Position) <= radius * radius).ToArray())
+        {
+            DamageEnemy(enemy, damage * power, enemy.Position, Player.Id, $"ability:{abilityId}");
+        }
+    }
+
+    private HashSet<string> GetTaughtAbilityIds()
+    {
+        HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string itemId in EquipmentLoadout.EquippedItemIds.Values)
+        {
+            if (!_equipmentItems.TryGetValue(itemId, out EquipmentInstance? item))
+            {
+                continue;
+            }
+
+            string? abilityId = item.WeaponBaseId is string weaponId &&
+                _catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon)
+                    ? weapon.TaughtAbilityId
+                    : item.EquipmentBaseId is string equipmentId &&
+                        _catalog.EquipmentBases.TryGetValue(equipmentId, out EquipmentBaseDefinition? equipment)
+                            ? equipment.TaughtAbilityId
+                            : null;
+            if (!string.IsNullOrWhiteSpace(abilityId))
+            {
+                ids.Add(abilityId);
+            }
+        }
+
+        return ids;
+    }
+
+    private float CalculateAbilityPowerMultiplier()
+    {
+        float multiplier = EquippedAffixProduct(AffixEffectType.AbilityPower) *
+            PassiveEffectProduct(AffixEffectType.AbilityPower) *
+            (1f + TalentBonus(AffixEffectType.AbilityPower));
+        return Math.Clamp(multiplier, 1f, 2f);
+    }
+
+    private float CalculateAbilityCooldownMultiplier()
+    {
+        float reduction = TalentBonus(AffixEffectType.CooldownRecovery) +
+            MathF.Max(0f, (EquippedAffixProduct(AffixEffectType.CooldownRecovery) *
+                PassiveEffectProduct(AffixEffectType.CooldownRecovery)) - 1f);
+        return 1f - Math.Clamp(reduction, 0f, 0.30f);
+    }
+
+    private void ApplyPersistentWeaponStats(WeaponState state, EquipmentInstance item, bool refill)
+    {
+        float capacity = AffixProduct(item, AffixEffectType.Capacity) *
+            PassiveEffectProduct(AffixEffectType.Capacity) *
+            (1f + TalentBonus(AffixEffectType.Capacity));
+        float fireInterval = AffixProduct(item, AffixEffectType.FireInterval) *
+            PassiveEffectProduct(AffixEffectType.FireInterval) *
+            (1f - Math.Clamp(TalentBonus(AffixEffectType.FireInterval), 0f, 0.5f));
+        float reload = (1f / AffixProduct(item, AffixEffectType.ReloadAndRecovery)) *
+            (1f / PassiveEffectProduct(AffixEffectType.ReloadAndRecovery)) *
+            (1f - Math.Clamp(TalentBonus(AffixEffectType.ReloadAndRecovery), 0f, 0.5f));
+        float recovery = AffixProduct(item, AffixEffectType.ReloadAndRecovery) *
+            PassiveEffectProduct(AffixEffectType.ReloadAndRecovery) *
+            (1f + TalentBonus(AffixEffectType.ReloadAndRecovery));
+        state.SetPersistentModifiers(capacity, fireInterval, reload, recovery, refill);
+    }
+
+    private float CalculatePersistentStabilityMultiplier(bool isLeftHand)
+    {
+        EquipmentInstance? item = GetHandItem(isLeftHand);
+        float affix = item is null ? 1f : AffixProduct(item, AffixEffectType.Stability);
+        return affix * PassiveEffectProduct(AffixEffectType.Stability) *
+            (1f - Math.Clamp(TalentBonus(AffixEffectType.Stability), 0f, 0.5f));
+    }
+
+    private float CalculateDualWieldPenaltyScale() => 1f - Math.Clamp(
+        TalentBonus(AffixEffectType.Stability) / 0.30f,
+        0f,
+        0.5f);
+
+    private float CalculatePermanentMovementMultiplier()
+    {
+        float multiplier = EquippedAffixProduct(AffixEffectType.MovementSpeed) *
+            PassiveEffectProduct(AffixEffectType.MovementSpeed) *
+            (1f + TalentBonus(AffixEffectType.MovementSpeed));
+        return Math.Clamp(multiplier, 1f, 1.15f);
+    }
+
+    private float CalculatePermanentMaximumHealthBonus()
+    {
+        float bonus = TalentBonus(AffixEffectType.MaximumHealth) +
+            PassiveEffectAdditive(AffixEffectType.MaximumHealth);
+        foreach (EquipmentInstance item in EquippedItems())
+        {
+            float scale = RpgProgressionMath.ItemPowerScale(item.ItemPower);
+            if (item.EquipmentBaseId is string baseId &&
+                _catalog.EquipmentBases.TryGetValue(baseId, out EquipmentBaseDefinition? definition))
+            {
+                bonus += definition.BaseMaximumHealth * scale;
+            }
+            foreach (RolledAffix rolled in item.Affixes)
+            {
+                if (_catalog.Affixes.TryGetValue(rolled.AffixId, out AffixDefinition? affix) &&
+                    affix.EffectType == AffixEffectType.MaximumHealth)
+                {
+                    bonus += rolled.Value;
+                }
+            }
+        }
+        return MathF.Max(0f, bonus);
+    }
+
+    private float CalculateRewardMultiplier(AffixEffectType type, float maximumBonus = 2f)
+    {
+        float multiplier = EquippedAffixProduct(type) * (1f + TalentBonus(type));
+        multiplier *= PassiveEffectProduct(type);
+        return Math.Clamp(multiplier, 1f, 1f + maximumBonus);
+    }
+
+    private float EquippedAffixProduct(AffixEffectType type)
+    {
+        float product = 1f;
+        foreach (EquipmentInstance item in EquippedItems())
+        {
+            product *= AffixProduct(item, type);
+        }
+        return product;
+    }
+
+    private float AffixProduct(EquipmentInstance item, AffixEffectType type)
+    {
+        float product = 1f;
+        foreach (RolledAffix rolled in item.Affixes)
+        {
+            if (_catalog.Affixes.TryGetValue(rolled.AffixId, out AffixDefinition? affix) && affix.EffectType == type)
+            {
+                product *= rolled.Value;
+            }
+        }
+        return product;
+    }
+
+    private float TalentBonus(AffixEffectType type) => _catalog.Talents.Values
+        .Where(talent => talent.EffectType == type)
+        .Sum(talent => talent.ValuePerRank * Progression.TalentRanks.GetValueOrDefault(talent.Id));
+
+    private float PassiveEffectProduct(AffixEffectType type, WeaponFamily family = WeaponFamily.None)
+    {
+        float product = 1f;
+        HashSet<string> taught = GetTaughtAbilityIds();
+        foreach (string abilityId in Progression.AbilityMastery.EquippedPassiveAbilityIds)
+        {
+            if ((!Progression.AbilityMastery.IsMastered(abilityId) && !taught.Contains(abilityId)) ||
+                !_catalog.Abilities.TryGetValue(abilityId, out EquipmentAbilityDefinition? ability) ||
+                ability.Kind != AbilityKind.Passive)
+            {
+                continue;
+            }
+            foreach (AffixEffectDefinition effect in ability.Effects.Where(effect => effect.Type == type &&
+                (effect.WeaponFamily == WeaponFamily.None || effect.WeaponFamily == family)))
+            {
+                product *= effect.Value;
+            }
+        }
+        return product;
+    }
+
+    private float PassiveEffectAdditive(AffixEffectType type)
+    {
+        float sum = 0f;
+        HashSet<string> taught = GetTaughtAbilityIds();
+        foreach (string abilityId in Progression.AbilityMastery.EquippedPassiveAbilityIds)
+        {
+            if ((!Progression.AbilityMastery.IsMastered(abilityId) && !taught.Contains(abilityId)) ||
+                !_catalog.Abilities.TryGetValue(abilityId, out EquipmentAbilityDefinition? ability) ||
+                ability.Kind != AbilityKind.Passive)
+            {
+                continue;
+            }
+            sum += ability.Effects.Where(effect => effect.Type == type).Sum(effect => effect.Value);
+        }
+        return sum;
+    }
+
+    private IEnumerable<EquipmentInstance> EquippedItems()
+    {
+        foreach (string itemId in EquipmentLoadout.EquippedItemIds.Values.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (_equipmentItems.TryGetValue(itemId, out EquipmentInstance? item))
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private EquipmentInstance? GetHandItem(bool isLeftHand)
+    {
+        string? itemId = EquipmentLoadout[isLeftHand ? EquipmentSlot.LeftHand : EquipmentSlot.RightHand];
+        return itemId is not null && _equipmentItems.TryGetValue(itemId, out EquipmentInstance? item) ? item : null;
+    }
+
+    private float CalculatePersistentWeaponDamageMultiplier(bool isLeftHand)
+    {
+        EquipmentInstance? item = GetHandItem(isLeftHand);
+        if (item is null)
+        {
+            return 1f;
+        }
+
+        float itemPower = RpgProgressionMath.ItemPowerScale(item.ItemPower);
+        WeaponFamily family = item.WeaponBaseId is string itemWeaponId &&
+            _catalog.Weapons.TryGetValue(itemWeaponId, out WeaponDefinition? itemWeapon)
+                ? itemWeapon.Family
+                : WeaponFamily.None;
+        float permanentMultiplier = EquippedAffixProduct(AffixEffectType.WeaponDamage) *
+            PassiveEffectProduct(AffixEffectType.WeaponDamage, family);
+
+        float talentBonus = _catalog.Talents.Values
+            .Where(talent => talent.EffectType == AffixEffectType.WeaponDamage)
+            .Sum(talent => talent.ValuePerRank * Progression.TalentRanks.GetValueOrDefault(talent.Id));
+        permanentMultiplier *= 1f + talentBonus;
+        if (item.WeaponBaseId is string weaponId && _catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) &&
+            Progression.Proficiencies.Get(weapon.Family).MasteryUnlocked)
+        {
+            permanentMultiplier *= 1.05f;
+        }
+
+        return itemPower * MathF.Min(1.25f, permanentMultiplier);
+    }
+
+    private void ApplyWeaponControl(
+        EnemyState enemy,
+        WeaponBehavior behavior,
+        Vector3 impact,
+        string weaponId,
+        float baseDamage)
+    {
+        if (behavior == WeaponBehavior.None || enemy.IsDead)
+        {
+            return;
+        }
+
+        float controlScale = enemy.Definition.IsBoss ? 0f : enemy.IsElite ? 0.3f : 1f;
+        if ((behavior & WeaponBehavior.DamageOverTime) != 0)
+        {
+            enemy.DamageOverTimeRemaining = MathF.Max(enemy.DamageOverTimeRemaining, 3f);
+            enemy.DamageOverTimePerSecond = MathF.Max(enemy.DamageOverTimePerSecond, baseDamage * 0.18f);
+            enemy.DamageOverTimeSourceId = weaponId;
+        }
+        if ((behavior & WeaponBehavior.ChainField) != 0)
+        {
+            enemy.DamageOverTimeRemaining = MathF.Max(enemy.DamageOverTimeRemaining, 2.5f);
+            enemy.DamageOverTimePerSecond = MathF.Max(enemy.DamageOverTimePerSecond, baseDamage * 0.10f);
+            enemy.DamageOverTimeSourceId = weaponId;
+        }
+
+        if (controlScale <= 0f)
+        {
+            return;
+        }
+
+        if ((behavior & WeaponBehavior.Stun) != 0)
+        {
+            enemy.ControlImpairmentSeconds = MathF.Max(enemy.ControlImpairmentSeconds, 0.8f * controlScale);
+            enemy.ActionState = EnemyActionState.HitReaction;
+        }
+
+        Vector3 direction = enemy.Position - impact;
+        direction.Y = 0f;
+        if (direction.LengthSquared() <= 0.0001f)
+        {
+            direction = enemy.Position - Player.Position;
+            direction.Y = 0f;
+        }
+
+        if (direction.LengthSquared() > 0.0001f)
+        {
+            direction = Vector3.Normalize(direction);
+            if ((behavior & WeaponBehavior.Knockback) != 0)
+            {
+                TrySetEnemyPosition(enemy, enemy.Position + (direction * 1.8f * controlScale));
+            }
+            else if ((behavior & WeaponBehavior.Pull) != 0)
+            {
+                TrySetEnemyPosition(enemy, enemy.Position - (direction * 1.5f * controlScale));
+            }
+        }
+    }
+
     private void UpdateWeapons(PlayerCommand command, float deltaSeconds)
     {
+        int requestedSet = Arena.TraversalMode == ArenaTraversalMode.OpenArena &&
+            command.SelectedQuickbarSlot is >= 0 and < WeaponQuickbarLoadout.SlotCount
+            ? command.SelectedQuickbarSlot
+            : -1;
+        bool swapPressed = command.Has(PlayerButtons.SwapWeaponSet) &&
+            !_previousButtons.HasFlag(PlayerButtons.SwapWeaponSet);
+        if (_pendingWeaponSetIndex < 0 &&
+            (requestedSet >= 0 || swapPressed))
+        {
+            BeginWeaponSetSwap(requestedSet >= 0
+                ? requestedSet
+                : FindNextPopulatedWeaponSlot(Player.ActiveWeaponSetIndex, 1));
+        }
+
+        WeaponState activeRight = Player.EffectiveRightHandWeapon;
+        WeaponState? activeLeft = ReferenceEquals(Player.LeftHandWeapon, activeRight)
+            ? null
+            : Player.LeftHandWeapon;
         foreach (WeaponState weapon in Player.Weapons)
         {
             bool wasReloading = weapon.IsReloading;
-            weapon.Tick(deltaSeconds);
+            bool isActive = ReferenceEquals(weapon, activeRight) || ReferenceEquals(weapon, activeLeft);
+            weapon.Tick(deltaSeconds, isActive ? 1f : 0.5f);
             if (wasReloading && !weapon.IsReloading)
             {
                 AddEvent(CombatEventType.ReloadCompleted, Player.Position, Player.Position,
@@ -655,31 +1682,147 @@ public sealed class GameSimulation : IDisposable
             }
         }
 
-        WeaponState current = Player.CurrentWeapon;
-        bool wasReloadingBeforeInput = current.IsReloading;
+        if (_pendingWeaponSetIndex >= 0)
+        {
+            Player.WeaponSwapRemainingSeconds = MathF.Max(0f,
+                Player.WeaponSwapRemainingSeconds - deltaSeconds);
+            if (Player.WeaponSwapRemainingSeconds <= 0f)
+            {
+                int completedSet = _pendingWeaponSetIndex;
+                _pendingWeaponSetIndex = -1;
+                ActivateWeaponSet(completedSet, emitEvent: true);
+            }
+            return;
+        }
+
+        WeaponState right = Player.EffectiveRightHandWeapon;
+        WeaponState? left = ReferenceEquals(Player.LeftHandWeapon, right) ? null : Player.LeftHandWeapon;
+        bool dualWielding = left is not null;
+        float dualPenaltyScale = CalculateDualWieldPenaltyScale();
         if (command.Has(PlayerButtons.Reload))
         {
-            current.BeginReload();
+            BeginHandReload(right, dualWielding ? 1f + (0.15f * dualPenaltyScale) : 1f);
+            if (left is not null)
+            {
+                BeginHandReload(left, 1f + (0.15f * dualPenaltyScale));
+            }
         }
 
-        if (!wasReloadingBeforeInput && current.IsReloading)
+        TryFireHand(right, PlayerButtons.FireRight, command.Buttons, deltaSeconds,
+            isLeftHand: false, dualWielding: dualWielding);
+        if (left is not null)
+        {
+            TryFireHand(left, PlayerButtons.FireLeft, command.Buttons, deltaSeconds,
+                isLeftHand: true, dualWielding: true);
+        }
+    }
+
+    public bool BeginWeaponSetSwap(int targetSetIndex)
+    {
+        if (targetSetIndex is < 0 or >= WeaponQuickbarLoadout.SlotCount ||
+            targetSetIndex == Player.ActiveWeaponSetIndex ||
+            _pendingWeaponSetIndex >= 0 || _weaponSets[targetSetIndex].RightHand is null)
+        {
+            return false;
+        }
+
+        CancelWeaponSetTransientState(_weaponSets[Player.ActiveWeaponSetIndex]);
+        CancelWeaponSetTransientState(_weaponSets[targetSetIndex]);
+        Player.IsAiming = false;
+        Player.WeaponSwapRemainingSeconds = 0.35f;
+        _pendingWeaponSetIndex = targetSetIndex;
+        return true;
+    }
+
+    private void CancelWeaponSetTransientState(RuntimeWeaponSet set)
+    {
+        foreach (WeaponState weapon in new[] { set.RightHand, set.LeftHand }.OfType<WeaponState>().Distinct())
+        {
+            weapon.CancelTransientState();
+            _chargeSeconds.Remove(weapon);
+            _rampShots.Remove(weapon);
+        }
+    }
+
+    private void ActivateWeaponSet(int setIndex, bool emitEvent)
+    {
+        RuntimeWeaponSet set = _weaponSets[setIndex];
+        if (set.RightHand is null)
+        {
+            return;
+        }
+
+        Player.ActiveWeaponSetIndex = setIndex;
+        Player.RightHandWeapon = set.RightHand;
+        Player.LeftHandWeapon = set.LeftHand;
+        Player.SelectedWeaponIndex = Math.Max(0, Player.Weapons.IndexOf(set.RightHand));
+        EquipmentLoadout.EquippedItemIds.Remove(EquipmentSlot.RightHand);
+        EquipmentLoadout.EquippedItemIds.Remove(EquipmentSlot.LeftHand);
+        if (set.RightHandItemId is not null)
+        {
+            EquipmentLoadout.EquippedItemIds[EquipmentSlot.RightHand] = set.RightHandItemId;
+        }
+        if (set.LeftHandItemId is not null)
+        {
+            EquipmentLoadout.EquippedItemIds[EquipmentSlot.LeftHand] = set.LeftHandItemId;
+        }
+
+        if (emitEvent)
+        {
+            AddEvent(CombatEventType.WeaponSetSwapped, Player.Position, Player.Position,
+                Player.Id, Player.Id, $"weapon-set-{setIndex + 1}", setIndex);
+        }
+    }
+
+    private void BeginHandReload(WeaponState weapon, float durationMultiplier)
+    {
+        bool wasReloading = weapon.IsReloading;
+        weapon.BeginReload(durationMultiplier);
+        if (!wasReloading && weapon.IsReloading)
         {
             AddEvent(CombatEventType.ReloadStarted, Player.Position, Player.Position,
-                Player.Id, EntityId.None, current.Definition.Id);
+                Player.Id, EntityId.None, weapon.Definition.Id);
         }
+    }
 
-        bool fireHeld = command.Has(PlayerButtons.Fire);
-        bool firePressed = fireHeld && !_previousButtons.HasFlag(PlayerButtons.Fire);
-        if (firePressed && current.Definition.TriggerMode == TriggerMode.Burst)
+    private void TryFireHand(
+        WeaponState weapon,
+        PlayerButtons fireButton,
+        PlayerButtons buttons,
+        float deltaSeconds,
+        bool isLeftHand,
+        bool dualWielding)
+    {
+        bool fireHeld = (buttons & fireButton) != 0;
+        bool firePressed = fireHeld && (_previousButtons & fireButton) == 0;
+        float chargeMultiplier = 1f;
+        if ((weapon.Definition.BehaviorFlags & WeaponBehavior.Charge) != 0)
         {
-            current.StartBurst();
+            if (fireHeld)
+            {
+                _chargeSeconds[weapon] = MathF.Min(1.2f,
+                    _chargeSeconds.GetValueOrDefault(weapon) + deltaSeconds);
+                return;
+            }
+
+            if ((_previousButtons & fireButton) == 0 || !_chargeSeconds.Remove(weapon, out float chargedSeconds))
+            {
+                return;
+            }
+
+            firePressed = true;
+            chargeMultiplier = float.Lerp(1f, 2f, Math.Clamp(chargedSeconds / 1.2f, 0f, 1f));
+        }
+        if (firePressed && weapon.Definition.TriggerMode == TriggerMode.Burst)
+        {
+            weapon.StartBurst();
         }
 
-        bool wantsShot = current.Definition.TriggerMode switch
+        bool wantsShot = weapon.Definition.TriggerMode switch
         {
             TriggerMode.SemiAutomatic => firePressed,
             TriggerMode.Automatic => fireHeld,
-            TriggerMode.Burst => current.BurstShotsRemaining > 0,
+            TriggerMode.Burst => weapon.BurstShotsRemaining > 0,
             _ => false,
         };
         if (!wantsShot)
@@ -687,40 +1830,57 @@ public sealed class GameSimulation : IDisposable
             return;
         }
 
-        if (!current.TryFire())
+        if (!weapon.TryFire())
         {
             if (firePressed)
             {
                 AddEvent(CombatEventType.DryFire, Player.Position, Player.Position,
-                    Player.Id, EntityId.None, current.Definition.Id);
+                    Player.Id, EntityId.None, weapon.Definition.Id);
             }
-
             return;
         }
 
-        current.CompleteBurstShot();
-
+        weapon.CompleteBurstShot();
         LastShotSeconds = 0f;
         Vector3 direction = GetViewDirection();
-        Vector3 muzzle = GetWeaponMuzzlePosition();
-        AddEvent(CombatEventType.WeaponFired, muzzle, Player.Position + direction,
-            Player.Id, EntityId.None, current.Definition.Id, current.Definition.ScreenShake);
-        if (current.Definition.ShotMode == ShotMode.Hitscan)
+        Vector3 muzzle = GetWeaponMuzzlePosition(weapon.Definition, isLeftHand);
+        float persistentDamageMultiplier = CalculatePersistentWeaponDamageMultiplier(isLeftHand);
+        persistentDamageMultiplier *= chargeMultiplier;
+        if ((weapon.Definition.BehaviorFlags & WeaponBehavior.RampDamage) != 0)
         {
-            for (int pellet = 0; pellet < current.Definition.PelletCount; pellet++)
+            int rampShots = Math.Min(6, _rampShots.GetValueOrDefault(weapon) + 1);
+            _rampShots[weapon] = rampShots;
+            persistentDamageMultiplier *= 1f + (rampShots * 0.04f);
+        }
+        else
+        {
+            _rampShots.Remove(weapon);
+        }
+        AddEvent(CombatEventType.WeaponFired, muzzle, Player.Position + direction,
+            Player.Id, EntityId.None, weapon.Definition.Id, weapon.Definition.ScreenShake);
+        if (weapon.Definition.ShotMode == ShotMode.Hitscan)
+        {
+            bool splitShot = (weapon.Definition.BehaviorFlags & WeaponBehavior.SplitShot) != 0;
+            int pelletCount = weapon.Definition.PelletCount + (splitShot ? 2 : 0);
+            float pelletDamageScale = splitShot ? 0.45f : 1f;
+            for (int pellet = 0; pellet < pelletCount; pellet++)
             {
-                float spreadMultiplier = _runDirector?.Modifiers.SpreadMultiplier(current.Definition.Id) ?? 1f;
+                float spreadMultiplier = _runDirector?.Modifiers.SpreadMultiplier(weapon.Definition.Id) ?? 1f;
+                spreadMultiplier *= dualWielding ? 1f + (0.2f * CalculateDualWieldPenaltyScale()) : 1f;
+                spreadMultiplier *= CalculatePersistentStabilityMultiplier(isLeftHand);
                 Vector3 pelletDirection = ApplySpread(direction,
-                    current.Definition.SpreadDegrees * spreadMultiplier);
-                FireHitscan(Player.Position, muzzle, pelletDirection, current.Definition);
+                    weapon.Definition.SpreadDegrees * spreadMultiplier);
+                FireHitscan(Player.Position, muzzle, pelletDirection, weapon.Definition,
+                    persistentDamageMultiplier * pelletDamageScale);
             }
         }
         else
         {
-            Vector3 aimPoint = Player.Position + (direction * current.Definition.Range);
+            Vector3 aimPoint = Player.Position + (direction * weapon.Definition.Range);
             Vector3 projectileDirection = Vector3.Normalize(aimPoint - muzzle);
-            float projectileSpeed = current.Definition.ProjectileSpeed *
-                (_runDirector?.Modifiers.ProjectileSpeedMultiplier(current.Definition.Id) ?? 1f);
+            float projectileSpeed = weapon.Definition.ProjectileSpeed *
+                (_runDirector?.Modifiers.ProjectileSpeedMultiplier(weapon.Definition.Id) ?? 1f);
+            float lifetimeSeconds = weapon.Definition.Range / MathF.Max(1f, projectileSpeed);
             Projectiles.Add(new ProjectileState
             {
                 Id = NextEntity(),
@@ -729,22 +1889,31 @@ public sealed class GameSimulation : IDisposable
                 PreviousPosition = muzzle,
                 Origin = muzzle,
                 Velocity = projectileDirection * projectileSpeed,
-                Radius = current.Definition.ProjectileRadius,
-                Damage = current.Definition.Damage,
-                WeaponId = current.Definition.Id,
-                SplashRadius = current.Definition.SplashRadius *
-                    (_runDirector?.Modifiers.SplashRadiusMultiplier(current.Definition.Id) ?? 1f),
-                ChainRadius = current.Definition.ChainRadius *
-                    (_runDirector?.Modifiers.ChainRadiusMultiplier(current.Definition.Id) ?? 1f),
-                ChainTargets = current.Definition.ChainTargets +
-                    (_runDirector?.Modifiers.ChainTargetBonus(current.Definition.Id) ?? 0),
-                Color = current.Definition.ProjectileColor,
-                RemainingSeconds = current.Definition.Range / MathF.Max(1f, projectileSpeed),
+                Radius = weapon.Definition.ProjectileRadius,
+                Damage = weapon.Definition.Damage * persistentDamageMultiplier,
+                WeaponId = weapon.Definition.Id,
+                BehaviorFlags = weapon.Definition.BehaviorFlags,
+                Motion = weapon.Definition.ProjectileMotion,
+                WeakPointMultiplier = weapon.Definition.WeakPointMultiplier,
+                SplashRadius = weapon.Definition.SplashRadius *
+                    (_runDirector?.Modifiers.SplashRadiusMultiplier(weapon.Definition.Id) ?? 1f),
+                ChainRadius = weapon.Definition.ChainRadius *
+                    (_runDirector?.Modifiers.ChainRadiusMultiplier(weapon.Definition.Id) ?? 1f),
+                ChainTargets = weapon.Definition.ChainTargets +
+                    (_runDirector?.Modifiers.ChainTargetBonus(weapon.Definition.Id) ?? 0),
+                Color = weapon.Definition.ProjectileColor,
+                InitialLifetimeSeconds = lifetimeSeconds,
+                RemainingSeconds = lifetimeSeconds,
             });
         }
     }
 
-    private void FireHitscan(Vector3 origin, Vector3 visualOrigin, Vector3 direction, WeaponDefinition weapon)
+    private void FireHitscan(
+        Vector3 origin,
+        Vector3 visualOrigin,
+        Vector3 direction,
+        WeaponDefinition weapon,
+        float persistentDamageMultiplier)
     {
         float nearestArenaDistance = weapon.Range;
         foreach (ArenaPrimitiveDefinition primitive in Arena.Primitives)
@@ -761,6 +1930,7 @@ public sealed class GameSimulation : IDisposable
         }
 
         EnemyState? hit = null;
+        bool hitWeakPoint = false;
         float nearestEnemyDistance = nearestArenaDistance;
         foreach (EnemyState enemy in Enemies)
         {
@@ -769,11 +1939,12 @@ public sealed class GameSimulation : IDisposable
                 continue;
             }
 
-            Vector3 center = enemy.Position + new Vector3(0f, enemy.Definition.ColliderHeight * 0.35f, 0f);
-            if (RayIntersectsSphere(origin, direction, center, enemy.Definition.ColliderRadius, out float distance) && distance < nearestEnemyDistance)
+            if (TryRayEnemyHit(origin, direction, enemy, out float distance, out bool weakPoint) &&
+                distance < nearestEnemyDistance)
             {
                 nearestEnemyDistance = distance;
                 hit = enemy;
+                hitWeakPoint = weakPoint;
             }
         }
 
@@ -782,15 +1953,97 @@ public sealed class GameSimulation : IDisposable
             float multiplier = CalculateDamageFalloff(weapon, nearestEnemyDistance);
             multiplier *= _runDirector?.Modifiers.DamageMultiplier(weapon.Id, nearestEnemyDistance) ?? 1f;
             Vector3 impact = origin + (direction * nearestEnemyDistance);
-            DamageEnemy(hit, weapon.Damage * multiplier, impact, Player.Id, weapon.Id);
+            float damage = weapon.Damage * persistentDamageMultiplier * multiplier;
+            if (hitWeakPoint)
+            {
+                damage *= weapon.WeakPointMultiplier;
+            }
+            DamageEnemy(hit, damage, impact, Player.Id, weapon.Id);
+            ApplyWeaponControl(hit, weapon.BehaviorFlags, impact, weapon.Id,
+                weapon.Damage * persistentDamageMultiplier);
             AddEvent(CombatEventType.EnemyHit, impact, visualOrigin, Player.Id, hit.Id, weapon.Id,
-                weapon.Damage * multiplier);
+                damage);
+            if ((weapon.BehaviorFlags & WeaponBehavior.Pierce) != 0)
+            {
+                foreach ((EnemyState enemy, float distance) in Enemies
+                    .Where(enemy => !enemy.IsDead && enemy != hit)
+                    .Select(enemy => (Enemy: enemy, Hit: RayIntersectsSphere(
+                        origin,
+                        direction,
+                        enemy.Position + new Vector3(0f, enemy.Definition.ColliderHeight * 0.35f, 0f),
+                        enemy.Definition.ColliderRadius,
+                        out float enemyDistance), Distance: enemyDistance))
+                    .Where(result => result.Hit && result.Distance > nearestEnemyDistance &&
+                        result.Distance < nearestArenaDistance)
+                    .OrderBy(result => result.Distance)
+                    .Take(2)
+                    .Select(result => (result.Enemy, result.Distance)))
+                {
+                    float pierceDamage = weapon.Damage * persistentDamageMultiplier * 0.65f *
+                        CalculateDamageFalloff(weapon, distance);
+                    Vector3 pierceImpact = origin + (direction * distance);
+                    DamageEnemy(enemy, pierceDamage, pierceImpact, Player.Id, weapon.Id);
+                    ApplyWeaponControl(enemy, weapon.BehaviorFlags, pierceImpact, weapon.Id,
+                        weapon.Damage * persistentDamageMultiplier);
+                    AddEvent(CombatEventType.EnemyHit, pierceImpact, visualOrigin,
+                        Player.Id, enemy.Id, weapon.Id, pierceDamage);
+                }
+            }
+            if ((weapon.BehaviorFlags & WeaponBehavior.Ricochet) != 0)
+            {
+                EnemyState? ricochet = Enemies
+                    .Where(enemy => !enemy.IsDead && enemy != hit &&
+                        Vector3.DistanceSquared(enemy.Position, hit.Position) <= 64f)
+                    .OrderBy(enemy => Vector3.DistanceSquared(enemy.Position, hit.Position))
+                    .ThenBy(enemy => enemy.Id.Value)
+                    .FirstOrDefault();
+                if (ricochet is not null)
+                {
+                    float ricochetDamage = weapon.Damage * persistentDamageMultiplier * 0.55f;
+                    Vector3 ricochetImpact = ricochet.Position +
+                        new Vector3(0f, ricochet.Definition.ColliderHeight * 0.35f, 0f);
+                    DamageEnemy(ricochet, ricochetDamage, ricochetImpact, Player.Id, weapon.Id);
+                    ApplyWeaponControl(ricochet, weapon.BehaviorFlags, ricochetImpact, weapon.Id,
+                        weapon.Damage * persistentDamageMultiplier);
+                    AddEvent(CombatEventType.EnemyHit, ricochetImpact, impact,
+                        Player.Id, ricochet.Id, weapon.Id, ricochetDamage);
+                }
+            }
         }
         else
         {
             Vector3 impact = origin + (direction * nearestArenaDistance);
             AddEvent(CombatEventType.WorldImpact, impact, visualOrigin, Player.Id, EntityId.None, weapon.Id);
         }
+    }
+
+    private static bool TryRayEnemyHit(
+        Vector3 origin,
+        Vector3 direction,
+        EnemyState enemy,
+        out float distance,
+        out bool weakPoint)
+    {
+        float nearestWeakPoint = float.PositiveInfinity;
+        foreach (EnemyWeakPointDefinition definition in enemy.Definition.WeakPoints)
+        {
+            if (RayIntersectsSphere(origin, direction, enemy.Position + definition.Offset,
+                    definition.Radius, out float weakPointDistance))
+            {
+                nearestWeakPoint = MathF.Min(nearestWeakPoint, weakPointDistance);
+            }
+        }
+
+        if (float.IsFinite(nearestWeakPoint))
+        {
+            distance = nearestWeakPoint;
+            weakPoint = true;
+            return true;
+        }
+
+        Vector3 center = enemy.Position + new Vector3(0f, enemy.Definition.ColliderHeight * 0.35f, 0f);
+        weakPoint = false;
+        return RayIntersectsSphere(origin, direction, center, enemy.Definition.ColliderRadius, out distance);
     }
 
     private void UpdateRunDirector(float deltaSeconds)
@@ -843,8 +2096,71 @@ public sealed class GameSimulation : IDisposable
         }
 
         _runDirector.CompleteBoss();
+        UnlockNextThreatTier();
+        CommitFinalProgression(includeWorldEquipment: true);
         Phase = GamePhase.Victory;
         Score += (int)(Player.Health * 10f);
+    }
+
+    private void CommitFinalProgression(bool includeWorldEquipment)
+    {
+        if (includeWorldEquipment)
+        {
+            EquipmentInstance[] worldItems = Pickups
+                .Where(pickup => pickup.Type == PickupType.Equipment && pickup.Equipment is not null)
+                .Select(pickup => pickup.Equipment!)
+                .ToArray();
+            _recoveryCache.Gather(worldItems);
+            _recoveryCache.TakeAll(_pendingProgression);
+            Pickups.RemoveAll(pickup => pickup.Type == PickupType.Equipment && pickup.IsDropped);
+        }
+
+        CommitPendingProgression();
+    }
+
+    private bool CommitPendingProgression()
+    {
+        int previousLevel = Progression.Level;
+        HashSet<string> previouslyMastered = Progression.AbilityMastery.Abilities
+            .Where(pair => pair.Value.IsMastered)
+            .Select(pair => pair.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!_pendingProgression.Commit(Progression, _catalog))
+        {
+            return false;
+        }
+
+        _runExperienceEarned += Math.Max(0, _pendingProgression.Experience);
+        _runLevelsGained += Math.Max(0, Progression.Level - previousLevel);
+        foreach ((WeaponFamily family, int amount) in _pendingProgression.ProficiencyExperience)
+        {
+            _runProficiencyExperience[family] = _runProficiencyExperience.GetValueOrDefault(family) +
+                Math.Max(0, amount);
+        }
+        foreach (string abilityId in Progression.AbilityMastery.Abilities
+            .Where(pair => pair.Value.IsMastered && !previouslyMastered.Contains(pair.Key))
+            .Select(pair => pair.Key))
+        {
+            _runAbilitiesMastered.Add(abilityId);
+        }
+        foreach (EquipmentInstance item in _pendingProgression.Equipment)
+        {
+            if (!_runCollectedItemIds.Add(item.Id))
+            {
+                continue;
+            }
+            _runRarityTotals[item.Rarity] = _runRarityTotals.GetValueOrDefault(item.Rarity) + 1;
+            _runHighestItemPower = Math.Max(_runHighestItemPower, item.ItemPower);
+        }
+        return true;
+    }
+
+    private void UnlockNextThreatTier()
+    {
+        if (ThreatTier < ThreatTier.TierX && Progression.HighestUnlockedThreatTier <= ThreatTier)
+        {
+            Progression.HighestUnlockedThreatTier = (ThreatTier)((int)ThreatTier + 1);
+        }
     }
 
     private void BeginGeneratedEncounter()
@@ -1074,6 +2390,14 @@ public sealed class GameSimulation : IDisposable
 
             if (!IsPendingSpawnPositionValid(pending))
             {
+                if (pending.PortalId.Equals("boss-core", StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyBossCoreSafetyImpulse(pending);
+                    pending.SafetyImpulseApplied = true;
+                    pending.RemainingSeconds = 0.25f;
+                    continue;
+                }
+
                 SpawnPortalDefinition? replacement = SelectReplacementPortal(pending);
                 if (replacement is null)
                 {
@@ -1139,12 +2463,31 @@ public sealed class GameSimulation : IDisposable
             : null;
     }
 
+    private void ApplyBossCoreSafetyImpulse(PendingEnemySpawn pending)
+    {
+        Vector3 direction = Player.Position - pending.Position;
+        direction.Y = 0f;
+        if (direction.LengthSquared() <= 0.001f)
+        {
+            direction = GetViewDirection();
+            direction.Y = 0f;
+        }
+
+        direction = Vector3.Normalize(direction);
+        Player.ExternalVelocity += direction * 36f;
+        AddEvent(CombatEventType.EnemyTelegraph, pending.Position, Player.Position,
+            EntityId.None, Player.Id, "boss-core-repulse", 12f);
+    }
+
     private SpawnPortalDefinition? SelectSpawnPortal(
         ArenaSectorDefinition sector,
         PendingEnemySpawn? ignoredPending = null)
     {
         Vector3 viewDirection = GetViewDirection();
-        return sector.SpawnPortals
+        HashSet<string> preferredPortalIds = sector.SpawnPortals
+            .Select(portal => portal.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Arena.Sectors.SelectMany(candidate => candidate.SpawnPortals)
             .Where(portal =>
             {
                 float distance = Vector3.Distance(portal.Position, Player.Position);
@@ -1155,7 +2498,8 @@ public sealed class GameSimulation : IDisposable
                         Vector3.DistanceSquared(pending.Position, portal.Position) >= 2.25f);
                 return validDistance && unoccupied && _navigation.IsWalkable(portal.Position);
             })
-            .OrderBy(portal =>
+            .OrderBy(portal => preferredPortalIds.Contains(portal.Id) ? 0 : 1)
+            .ThenBy(portal =>
             {
                 Vector3 direction = portal.Position - Player.Position;
                 direction.Y = 0f;
@@ -1199,9 +2543,11 @@ public sealed class GameSimulation : IDisposable
             return;
         }
 
-        RelayObjective.Health = MathF.Max(0f, RelayObjective.Health - (damage * 0.5f));
+        float appliedDamage = damage * RpgProgressionMath.EnemyDamageMultiplier(ThreatTier) *
+            DifficultyCatalog.Get(Difficulty).EnemyDamageMultiplier * 0.5f;
+        RelayObjective.Health = MathF.Max(0f, RelayObjective.Health - appliedDamage);
         AddEvent(CombatEventType.RelayDamaged, RelayObjective.Position, RelayObjective.Position,
-            sourceId, EntityId.None, "relay", damage * 0.5f);
+            sourceId, EntityId.None, "relay", appliedDamage);
     }
 
     private void EvaluateGeneratedEncounter()
@@ -1275,13 +2621,59 @@ public sealed class GameSimulation : IDisposable
         Score += 500 * (_runDirector!.CurrentEncounterIndex + 1);
         Player.Health = MathF.Min(Player.MaximumHealth,
             Player.Health + _runDirector.Modifiers.EncounterHealing);
-        ActivateArmoryPickup(_runDirector.CurrentEncounterIndex);
+        GatherRecoveryLoot(encounter);
+        CreditEquippedAbilityPoints();
         TeleportPlayerToRecoveryHub();
         UpgradeOffer offer = _runDirector.CompleteEncounter();
         AddEvent(CombatEventType.EncounterCompleted, Player.Position, Player.Position,
             EntityId.None, Player.Id, encounter.Id, completionMetric);
         AddEvent(CombatEventType.UpgradeOffered, Player.Position, Player.Position,
             EntityId.None, Player.Id, string.Join(',', offer.Choices.Select(choice => choice.Id)));
+    }
+
+    private void GatherRecoveryLoot(EncounterDefinition encounter)
+    {
+        EquipmentInstance[] uncollected = Pickups
+            .Where(pickup => pickup.IsAvailable && pickup.Type == PickupType.Equipment && pickup.Equipment is not null)
+            .Select(pickup => pickup.Equipment!)
+            .ToArray();
+        Pickups.RemoveAll(pickup => pickup.Type == PickupType.Equipment && pickup.IsDropped);
+        _recoveryCache.Gather(uncollected);
+        for (int index = 0; index < StandardRpgCatalog.StandardLootTable.EncounterCacheDropCount; index++)
+        {
+            _recoveryCache.Gather([GenerateLoot(-1000 - (_runDirector!.CurrentEncounterIndex * 10) - index)]);
+        }
+
+        AddEvent(CombatEventType.RecoveryCacheOpened, GetArmoryPosition(), Player.Position,
+            EntityId.None, Player.Id, encounter.Id, _recoveryCache.Items.Count);
+    }
+
+    private void CreditEquippedAbilityPoints()
+    {
+        int amount = Math.Max(1, (int)MathF.Round(
+            10f * RpgProgressionMath.PersistentRewardMultiplier(ThreatTier) *
+            CalculateRewardMultiplier(AffixEffectType.AbilityPointGain)));
+        foreach (string itemId in EquipmentLoadout.EquippedItemIds.Values
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!_equipmentItems.TryGetValue(itemId, out EquipmentInstance? item))
+            {
+                continue;
+            }
+
+            string? abilityId = item.WeaponBaseId is string weaponId &&
+                _catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon)
+                    ? weapon.TaughtAbilityId
+                    : item.EquipmentBaseId is string equipmentId &&
+                        _catalog.EquipmentBases.TryGetValue(equipmentId, out EquipmentBaseDefinition? equipment)
+                            ? equipment.TaughtAbilityId
+                            : null;
+            if (!string.IsNullOrWhiteSpace(abilityId))
+            {
+                _pendingProgression.AbilityPoints[abilityId] =
+                    _pendingProgression.AbilityPoints.GetValueOrDefault(abilityId) + amount;
+            }
+        }
     }
 
     private void ActivateArmoryPickup(int completedEncounterIndex)
@@ -1545,7 +2937,9 @@ public sealed class GameSimulation : IDisposable
     {
         EnemyDefinition definition = _catalog.Enemies[enemyId];
         float eliteHealthMultiplier = _runDirector?.CurrentEncounter?.EliteHealthMultiplier ?? 1.4f;
-        float maximumHealth = definition.MaxHealth * (isElite ? eliteHealthMultiplier : 1f);
+        float maximumHealth = definition.MaxHealth * (isElite ? eliteHealthMultiplier : 1f) *
+            RpgProgressionMath.EnemyHealthMultiplier(ThreatTier) *
+            DifficultyCatalog.Get(Difficulty).EnemyHealthMultiplier;
         EntityId id = NextEntity();
         EnemyState enemy = new()
         {
@@ -1579,10 +2973,23 @@ public sealed class GameSimulation : IDisposable
             enemy.HitFlashSeconds = MathF.Max(0f, enemy.HitFlashSeconds - deltaSeconds);
             enemy.AttackAnimationSeconds = MathF.Max(0f, enemy.AttackAnimationSeconds - deltaSeconds);
             enemy.AiTimerSeconds = MathF.Max(0f, enemy.AiTimerSeconds - deltaSeconds);
+            enemy.ControlImpairmentSeconds = MathF.Max(0f, enemy.ControlImpairmentSeconds - deltaSeconds);
+            if (!enemy.IsDead && enemy.DamageOverTimeRemaining > 0f)
+            {
+                enemy.DamageOverTimeRemaining = MathF.Max(0f, enemy.DamageOverTimeRemaining - deltaSeconds);
+                DamageEnemy(enemy, enemy.DamageOverTimePerSecond * deltaSeconds, enemy.Position,
+                    Player.Id, enemy.DamageOverTimeSourceId);
+            }
             if (enemy.IsDead)
             {
                 enemy.ActionState = EnemyActionState.Death;
                 enemy.DeathSeconds += deltaSeconds;
+                continue;
+            }
+
+            if (enemy.ControlImpairmentSeconds > 0f)
+            {
+                enemy.ActionState = EnemyActionState.HitReaction;
                 continue;
             }
 
@@ -1786,7 +3193,13 @@ public sealed class GameSimulation : IDisposable
 
     private void RecycleStalledEnemies()
     {
-        if (_queuedRecycles.Count == 0 || ActiveSector is not ArenaSectorDefinition sector)
+        if (_queuedRecycles.Count == 0)
+        {
+            return;
+        }
+
+        ArenaSectorDefinition? sector = ActiveSector ?? Arena.Sectors.FirstOrDefault();
+        if (sector is null)
         {
             return;
         }
@@ -1905,16 +3318,17 @@ public sealed class GameSimulation : IDisposable
 
         if (distance <= enemy.Definition.ChargeRange && enemy.AttackCooldownSeconds <= 0f)
         {
+            float chargeWindup = ScaleAttackTell(enemy, enemy.Definition.ChargeWindupSeconds);
             enemy.ActionState = EnemyActionState.Windup;
-            enemy.AiTimerSeconds = enemy.Definition.ChargeWindupSeconds;
-            enemy.AttackCooldownSeconds = enemy.Definition.ChargeCooldownSeconds;
-            enemy.AttackAnimationSeconds = enemy.Definition.ChargeWindupSeconds;
+            enemy.AiTimerSeconds = chargeWindup;
+            enemy.AttackCooldownSeconds = ScaleAttackInterval(enemy.Definition.ChargeCooldownSeconds);
+            enemy.AttackAnimationSeconds = chargeWindup;
             AddEvent(CombatEventType.EnemyTelegraph, enemy.Position, GetEnemyTargetPosition(enemy),
                 enemy.Id, enemy.TargetsRelay ? EntityId.None : Player.Id,
-                "charge-windup", enemy.Definition.ChargeWindupSeconds);
+                "charge-windup", chargeWindup);
             AddEvent(CombatEventType.EnemyAttackStarted, enemy.Position, GetEnemyTargetPosition(enemy),
                 enemy.Id, enemy.TargetsRelay ? EntityId.None : Player.Id,
-                "charge-windup", enemy.Definition.ChargeWindupSeconds);
+                "charge-windup", chargeWindup);
             return;
         }
 
@@ -1981,7 +3395,8 @@ public sealed class GameSimulation : IDisposable
             projectileCount,
             spreadDegrees,
             phase.ProjectileSpeedMultiplier);
-        enemy.AttackCooldownSeconds = enemy.Definition.AttackCooldownSeconds * phase.AttackCooldownMultiplier;
+        enemy.AttackCooldownSeconds = ScaleAttackInterval(
+            enemy.Definition.AttackCooldownSeconds * phase.AttackCooldownMultiplier);
     }
 
     private void UpdateBossPhase(EnemyState enemy)
@@ -2059,9 +3474,10 @@ public sealed class GameSimulation : IDisposable
         enemy.PendingAttackProjectileSpreadDegrees = projectileSpreadDegrees;
         enemy.PendingAttackSpeedMultiplier = speedMultiplier;
         enemy.PendingAttackTargetsRelay = enemy.TargetsRelay && RelayObjective is not null;
+        windupSeconds = ScaleAttackTell(enemy, windupSeconds);
         enemy.ActionState = EnemyActionState.Windup;
         enemy.AiTimerSeconds = windupSeconds;
-        enemy.AttackCooldownSeconds = enemy.Definition.AttackCooldownSeconds;
+        enemy.AttackCooldownSeconds = ScaleAttackInterval(enemy.Definition.AttackCooldownSeconds);
         enemy.AttackAnimationSeconds = windupSeconds + enemy.Definition.AttackRecoverySeconds;
         Vector3 targetPosition = GetEnemyTargetPosition(enemy);
         EntityId targetId = enemy.PendingAttackTargetsRelay ? EntityId.None : Player.Id;
@@ -2070,6 +3486,16 @@ public sealed class GameSimulation : IDisposable
         AddEvent(CombatEventType.EnemyAttackStarted, enemy.Position, targetPosition,
             enemy.Id, targetId, cueId, windupSeconds);
     }
+
+    private float ScaleAttackTell(EnemyState enemy, float authoredSeconds)
+    {
+        float minimum = enemy.Definition.IsBoss ? 0.70f : 0.45f;
+        return MathF.Max(minimum,
+            authoredSeconds * DifficultyCatalog.Get(Difficulty).TellDurationMultiplier);
+    }
+
+    private float ScaleAttackInterval(float authoredSeconds) => authoredSeconds *
+        DifficultyCatalog.Get(Difficulty).AttackIntervalMultiplier;
 
     private bool UpdatePendingAttack(EnemyState enemy)
     {
@@ -2243,17 +3669,6 @@ public sealed class GameSimulation : IDisposable
         float radius = enemy.Definition.ColliderRadius;
         candidate.X = Math.Clamp(candidate.X, Arena.BoundsMin.X + radius + 0.05f, Arena.BoundsMax.X - radius - 0.05f);
         candidate.Z = Math.Clamp(candidate.Z, Arena.BoundsMin.Z + radius + 0.05f, Arena.BoundsMax.Z - radius - 0.05f);
-        if (_runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.BossActive)
-        {
-            candidate.X = Math.Clamp(
-                candidate.X,
-                Arena.BossArenaAnchor.X - Arena.BossArenaHalfExtents.X + radius,
-                Arena.BossArenaAnchor.X + Arena.BossArenaHalfExtents.X - radius);
-            candidate.Z = Math.Clamp(
-                candidate.Z,
-                Arena.BossArenaAnchor.Z - Arena.BossArenaHalfExtents.Z + radius,
-                Arena.BossArenaAnchor.Z + Arena.BossArenaHalfExtents.Z - radius);
-        }
         Vector3 eye = candidate + new Vector3(0f, PlayerEyeHeight - candidate.Y, 0f);
         if (CollidesWithArena(eye, radius, enemy.Definition.ColliderHeight))
         {
@@ -2277,7 +3692,9 @@ public sealed class GameSimulation : IDisposable
             : Player.Position;
         Vector3 direction = Vector3.Normalize(targetPosition - origin);
         direction = RotateAroundY(direction, yawOffsetDegrees * (MathF.PI / 180f));
-        float speed = enemy.Definition.ProjectileSpeed * speedMultiplier;
+        float speed = enemy.Definition.ProjectileSpeed * speedMultiplier *
+            DifficultyCatalog.Get(Difficulty).ProjectileSpeedMultiplier;
+        float lifetimeSeconds = enemy.Definition.RangedAttackRange / MathF.Max(1f, speed);
         Projectiles.Add(new ProjectileState
         {
             Id = NextEntity(),
@@ -2292,7 +3709,8 @@ public sealed class GameSimulation : IDisposable
             TargetsRelay = targetsRelay,
             SplashRadius = enemy.Definition.ProjectileSplashRadius,
             Color = enemy.Definition.Tint,
-            RemainingSeconds = enemy.Definition.RangedAttackRange / MathF.Max(1f, speed),
+            InitialLifetimeSeconds = lifetimeSeconds,
+            RemainingSeconds = lifetimeSeconds,
         });
         AddEvent(CombatEventType.EnemyAttack, origin, targetPosition,
             enemy.Id, targetsRelay ? EntityId.None : Player.Id,
@@ -2370,17 +3788,81 @@ public sealed class GameSimulation : IDisposable
         }
     }
 
+    private void UpdateProjectileMotion(ProjectileState projectile, float deltaSeconds)
+    {
+        float speed = projectile.Velocity.Length();
+        if (speed <= 0.0001f)
+        {
+            return;
+        }
+
+        if (projectile.Motion == ProjectileMotionMode.Ballistic)
+        {
+            projectile.Velocity += new Vector3(0f, -9.81f * 0.35f * deltaSeconds, 0f);
+            return;
+        }
+
+        if (projectile.Motion == ProjectileMotionMode.Returning &&
+            projectile.InitialLifetimeSeconds > 0f &&
+            projectile.RemainingSeconds <= projectile.InitialLifetimeSeconds * 0.5f)
+        {
+            projectile.HasReversed = true;
+            Vector3 returnOffset = projectile.Origin - projectile.Position;
+            if (returnOffset.LengthSquared() > 0.01f)
+            {
+                Vector3 desired = Vector3.Normalize(returnOffset);
+                Vector3 current = Vector3.Normalize(projectile.Velocity);
+                Vector3 steered = Vector3.Lerp(current, desired, Math.Clamp(deltaSeconds * 8f, 0f, 1f));
+                projectile.Velocity = Vector3.Normalize(steered) * speed;
+            }
+            return;
+        }
+
+        if (projectile.Motion != ProjectileMotionMode.Homing || projectile.IsHostile)
+        {
+            return;
+        }
+
+        EnemyState? target = Enemies
+            .Where(enemy => !enemy.IsDead)
+            .OrderBy(enemy => Vector3.DistanceSquared(projectile.Position, enemy.Position))
+            .ThenBy(enemy => enemy.Id.Value)
+            .FirstOrDefault();
+        if (target is null)
+        {
+            return;
+        }
+
+        Vector3 targetPosition = target.Position +
+            new Vector3(0f, target.Definition.ColliderHeight * 0.35f, 0f);
+        Vector3 targetOffset = targetPosition - projectile.Position;
+        if (targetOffset.LengthSquared() <= 0.01f)
+        {
+            return;
+        }
+
+        Vector3 currentDirection = Vector3.Normalize(projectile.Velocity);
+        Vector3 desiredDirection = Vector3.Normalize(targetOffset);
+        Vector3 homingDirection = Vector3.Lerp(
+            currentDirection,
+            desiredDirection,
+            Math.Clamp(deltaSeconds * 5f, 0f, 1f));
+        projectile.Velocity = Vector3.Normalize(homingDirection) * speed;
+    }
+
     private void UpdateProjectiles(float deltaSeconds)
     {
         for (int index = Projectiles.Count - 1; index >= 0; index--)
         {
             ProjectileState projectile = Projectiles[index];
             projectile.PreviousPosition = projectile.Position;
+            UpdateProjectileMotion(projectile, deltaSeconds);
             Vector3 nextPosition = projectile.Position + (projectile.Velocity * deltaSeconds);
             projectile.RemainingSeconds -= deltaSeconds;
             bool remove = projectile.RemainingSeconds <= 0f;
             float nearestFraction = 1f;
             EnemyState? directEnemy = null;
+            bool directWeakPoint = false;
             bool playerHit = false;
             bool relayHit = false;
 
@@ -2432,19 +3914,20 @@ public sealed class GameSimulation : IDisposable
             {
                 foreach (EnemyState enemy in Enemies)
                 {
-                    Vector3 enemyCenter = enemy.Position + new Vector3(0f, enemy.Definition.ColliderHeight * 0.35f, 0f);
-                    if (enemy.IsDead || !SegmentIntersectsSphere(
+                    if (enemy.IsDead || !TrySegmentEnemyHit(
                         projectile.Position,
                         nextPosition,
-                        enemyCenter,
-                        projectile.Radius + enemy.Definition.ColliderRadius,
-                        out float fraction) || fraction >= nearestFraction)
+                        projectile.Radius,
+                        enemy,
+                        out float fraction,
+                        out bool weakPoint) || fraction >= nearestFraction)
                     {
                         continue;
                     }
 
                     nearestFraction = fraction;
                     directEnemy = enemy;
+                    directWeakPoint = weakPoint;
                     remove = true;
                 }
             }
@@ -2454,7 +3937,7 @@ public sealed class GameSimulation : IDisposable
                 if (nearestFraction < 1f)
                 {
                     projectile.Position = Vector3.Lerp(projectile.Position, nextPosition, nearestFraction);
-                    ImpactProjectile(projectile, directEnemy, playerHit, relayHit);
+                    ImpactProjectile(projectile, directEnemy, directWeakPoint, playerHit, relayHit);
                 }
 
                 Projectiles.RemoveAt(index);
@@ -2469,6 +3952,7 @@ public sealed class GameSimulation : IDisposable
     private void ImpactProjectile(
         ProjectileState projectile,
         EnemyState? directEnemy,
+        bool directWeakPoint,
         bool playerHit,
         bool relayHit)
     {
@@ -2524,6 +4008,8 @@ public sealed class GameSimulation : IDisposable
                     Vector3.Distance(projectile.Origin, enemy.Position)) ?? 1f;
                 DamageEnemy(enemy, projectile.Damage * multiplier * runMultiplier,
                     projectile.Position, Player.Id, projectile.WeaponId);
+                ApplyWeaponControl(enemy, projectile.BehaviorFlags, projectile.Position,
+                    projectile.WeaponId ?? string.Empty, projectile.Damage);
                 AddEvent(CombatEventType.EnemyHit, projectile.Position, projectile.PreviousPosition,
                     Player.Id, enemy.Id, projectile.WeaponId, projectile.Damage * multiplier * runMultiplier);
                 damaged.Add(enemy);
@@ -2534,11 +4020,36 @@ public sealed class GameSimulation : IDisposable
             float runMultiplier = _runDirector?.Modifiers.DamageMultiplier(
                 projectile.WeaponId ?? string.Empty,
                 Vector3.Distance(projectile.Origin, directEnemy.Position)) ?? 1f;
-            DamageEnemy(directEnemy, projectile.Damage * runMultiplier,
+            float directDamage = projectile.Damage * runMultiplier *
+                (directWeakPoint ? projectile.WeakPointMultiplier : 1f);
+            DamageEnemy(directEnemy, directDamage,
                 projectile.Position, Player.Id, projectile.WeaponId);
+            ApplyWeaponControl(directEnemy, projectile.BehaviorFlags, projectile.Position,
+                projectile.WeaponId ?? string.Empty, projectile.Damage);
             AddEvent(CombatEventType.EnemyHit, projectile.Position, projectile.PreviousPosition,
-                Player.Id, directEnemy.Id, projectile.WeaponId, projectile.Damage * runMultiplier);
+                Player.Id, directEnemy.Id, projectile.WeaponId, directDamage);
             damaged.Add(directEnemy);
+        }
+
+        if ((projectile.BehaviorFlags & WeaponBehavior.Cluster) != 0)
+        {
+            float clusterRadius = MathF.Max(6f, projectile.SplashRadius * 1.6f);
+            foreach (EnemyState enemy in Enemies
+                .Where(enemy => !enemy.IsDead && !damaged.Contains(enemy) &&
+                    Vector3.DistanceSquared(enemy.Position, projectile.Position) <= clusterRadius * clusterRadius)
+                .OrderBy(enemy => Vector3.DistanceSquared(enemy.Position, projectile.Position))
+                .ThenBy(enemy => enemy.Id.Value)
+                .Take(3)
+                .ToArray())
+            {
+                float clusterDamage = projectile.Damage * 0.35f;
+                DamageEnemy(enemy, clusterDamage, enemy.Position, Player.Id, projectile.WeaponId);
+                ApplyWeaponControl(enemy, projectile.BehaviorFlags, projectile.Position,
+                    projectile.WeaponId ?? string.Empty, projectile.Damage);
+                AddEvent(CombatEventType.EnemyHit, enemy.Position, projectile.Position,
+                    Player.Id, enemy.Id, projectile.WeaponId, clusterDamage);
+                damaged.Add(enemy);
+            }
         }
 
         if (projectile.ChainTargets <= 0 || projectile.ChainRadius <= 0f)
@@ -2565,6 +4076,8 @@ public sealed class GameSimulation : IDisposable
                 Vector3.Distance(projectile.Origin, next.Position)) ?? 1f;
             float damage = projectile.Damage * runMultiplier * MathF.Pow(0.68f, chain + 1);
             DamageEnemy(next, damage, next.Position, Player.Id, projectile.WeaponId);
+            ApplyWeaponControl(next, projectile.BehaviorFlags, chainOrigin,
+                projectile.WeaponId ?? string.Empty, projectile.Damage);
             AddEvent(CombatEventType.EnemyHit, next.Position, chainOrigin,
                 Player.Id, next.Id, projectile.WeaponId, damage);
             damaged.Add(next);
@@ -2584,6 +4097,7 @@ public sealed class GameSimulation : IDisposable
             return;
         }
 
+        float actualDamage = MathF.Min(enemy.Health, MathF.Max(0f, damage));
         enemy.Health = MathF.Max(0f, enemy.Health - damage);
         enemy.HitFlashSeconds = 0.12f;
         if (!enemy.IsDead && enemy.ActionState == EnemyActionState.Windup &&
@@ -2598,6 +4112,7 @@ public sealed class GameSimulation : IDisposable
         if (sourceId == Player.Id)
         {
             LastHitSeconds = 0f;
+            CreditWeaponProficiency(weaponId, actualDamage, killCredit: false);
         }
 
         if (!enemy.IsDead)
@@ -2606,6 +4121,11 @@ public sealed class GameSimulation : IDisposable
         }
 
         Kills++;
+        _pendingProgression.Experience += (int)MathF.Round(
+            (18f + (enemy.Definition.ThreatWeight * 12f)) *
+            RpgProgressionMath.PersistentRewardMultiplier(ThreatTier) *
+            CalculateRewardMultiplier(AffixEffectType.ExperienceGain));
+        CreditWeaponProficiency(weaponId, 20f * enemy.Definition.ThreatWeight, killCredit: true);
         LastKillSeconds = 0f;
         float killDistance = 0f;
         if (sourceId == Player.Id)
@@ -2640,6 +4160,78 @@ public sealed class GameSimulation : IDisposable
         {
             AddDroppedPickup(PickupType.Ammo, enemy.Position, 16);
         }
+
+        DropEquipmentForEnemy(enemy);
+    }
+
+    private void CreditWeaponProficiency(string? weaponId, float damage, bool killCredit)
+    {
+        if (string.IsNullOrWhiteSpace(weaponId) || damage <= 0f ||
+            !_catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) ||
+            weapon.Family == WeaponFamily.None)
+        {
+            return;
+        }
+
+        int amount = Math.Max(1, (int)MathF.Round(damage * (killCredit ? 1f : 0.25f)));
+        amount = Math.Max(1, (int)MathF.Round(amount *
+            CalculateRewardMultiplier(AffixEffectType.ProficiencyGain)));
+        _pendingProgression.ProficiencyExperience[weapon.Family] =
+            _pendingProgression.ProficiencyExperience.GetValueOrDefault(weapon.Family) + amount;
+    }
+
+    private void DropEquipmentForEnemy(EnemyState enemy)
+    {
+        int count;
+        ItemRarity? minimumRarity = null;
+        if (enemy.Definition.IsBoss)
+        {
+            count = StandardRpgCatalog.StandardLootTable.BossDropCount;
+        }
+        else if (enemy.IsElite)
+        {
+            count = StandardRpgCatalog.StandardLootTable.EliteDropCount;
+        }
+        else
+        {
+            float baseChance = MathF.Min(StandardRpgCatalog.StandardLootTable.MaximumEnemyDropChance,
+                StandardRpgCatalog.StandardLootTable.BaseEnemyDropChancePerThreat * enemy.Definition.ThreatWeight);
+            float chance = MathF.Min(0.30f,
+                baseChance * CalculateRewardMultiplier(AffixEffectType.LootChance, maximumBonus: 1f));
+            count = NextRandomSingle() < chance ? 1 : 0;
+        }
+
+        for (int index = 0; index < count; index++)
+        {
+            if (enemy.Definition.IsBoss && index == 0)
+            {
+                minimumRarity = ItemRarity.Epic;
+            }
+
+            EquipmentInstance item = GenerateLoot(enemy.Id.Value, minimumRarity);
+            Vector3 offset = new((index % 3 - 1) * 0.8f, 0f, (index / 3) * 0.8f);
+            AddEquipmentDrop(item, enemy.Position + offset);
+            minimumRarity = null;
+        }
+    }
+
+    private EquipmentInstance GenerateLoot(int sourceEntity, ItemRarity? minimumRarity = null) =>
+        LootGenerator.Generate(RunSeed, Tick, sourceEntity, _lootDropSerial++, ThreatTier,
+            _catalog, Progression.Proficiencies, minimumRarity,
+            CalculateRewardMultiplier(AffixEffectType.RarityLuck, maximumBonus: 1f) - 1f);
+
+    private void AddEquipmentDrop(EquipmentInstance item, Vector3 position)
+    {
+        Pickups.Add(new PickupState
+        {
+            Id = NextEntity(),
+            Type = PickupType.Equipment,
+            Position = new Vector3(position.X, 0.2f, position.Z),
+            Equipment = item,
+            IsDropped = true,
+        });
+        AddEvent(CombatEventType.EquipmentDropped, position, Player.Position,
+            EntityId.None, Player.Id, item.Id, item.ItemPower);
     }
 
     private void AddDroppedPickup(PickupType type, Vector3 position, int amount) => Pickups.Add(new PickupState
@@ -2652,8 +4244,10 @@ public sealed class GameSimulation : IDisposable
         IsDropped = true,
     });
 
-    private void UpdatePickups(float deltaSeconds)
+    private void UpdatePickups(PlayerCommand command, float deltaSeconds)
     {
+        bool interactPressed = command.Has(PlayerButtons.Interact) &&
+            !_previousButtons.HasFlag(PlayerButtons.Interact);
         for (int index = Pickups.Count - 1; index >= 0; index--)
         {
             PickupState pickup = Pickups[index];
@@ -2670,8 +4264,14 @@ public sealed class GameSimulation : IDisposable
 
             Vector2 playerPosition = new(Player.Position.X, Player.Position.Z);
             Vector2 pickupPosition = new(pickup.Position.X, pickup.Position.Z);
-            float pickupRadius = 1.2f * (_runDirector?.Modifiers.PickupRadiusMultiplier ?? 1f);
+            float pickupRadius = 1.2f * (_runDirector?.Modifiers.PickupRadiusMultiplier ?? 1f) *
+                CalculateRewardMultiplier(AffixEffectType.PickupRadius, maximumBonus: 1f);
             if (Vector2.DistanceSquared(playerPosition, pickupPosition) > pickupRadius * pickupRadius)
+            {
+                continue;
+            }
+
+            if (pickup.Type == PickupType.Equipment && !interactPressed)
             {
                 continue;
             }
@@ -2683,6 +4283,7 @@ public sealed class GameSimulation : IDisposable
                 PickupType.Health => TryApplyHealth(pickupAmount),
                 PickupType.Ammo => TryApplyAmmo(pickupAmount),
                 PickupType.Weapon => TryApplyWeapon(pickup.WeaponId, pickupAmount),
+                PickupType.Equipment => TryCollectEquipment(pickup.Equipment),
                 _ => false,
             };
 
@@ -2693,6 +4294,11 @@ public sealed class GameSimulation : IDisposable
 
             AddEvent(CombatEventType.PickupCollected, pickup.Position, Player.Position,
                 pickup.Id, Player.Id, pickup.Type.ToString(), pickupAmount);
+            if (pickup.Type == PickupType.Equipment)
+            {
+                AddEvent(CombatEventType.EquipmentCollected, pickup.Position, Player.Position,
+                    pickup.Id, Player.Id, pickup.Equipment?.Id, pickup.Equipment?.ItemPower ?? 0f);
+            }
 
             if (pickup.IsDropped)
             {
@@ -2708,6 +4314,19 @@ public sealed class GameSimulation : IDisposable
                 pickup.RespawnRemainingSeconds = pickup.RespawnSeconds;
             }
         }
+    }
+
+    private bool TryCollectEquipment(EquipmentInstance? item)
+    {
+        if (item is null || _pendingProgression.Equipment.Any(existing =>
+            existing.Id.Equals(item.Id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        _pendingProgression.Equipment.Add(item);
+        _equipmentItems[item.Id] = item;
+        return true;
     }
 
     private bool TryApplyHealth(int amount)
@@ -2769,7 +4388,10 @@ public sealed class GameSimulation : IDisposable
 
         float appliedDamage = MathF.Min(
             MathF.Max(0f, 35f - _damageAppliedThisTick),
-            damage * (_runDirector?.Modifiers.IncomingDamageMultiplier ?? 1f));
+            damage * RpgProgressionMath.EnemyDamageMultiplier(ThreatTier) *
+            DifficultyCatalog.Get(Difficulty).EnemyDamageMultiplier *
+            CalculatePermanentDamageMultiplier() *
+            (_runDirector?.Modifiers.IncomingDamageMultiplier ?? 1f));
         if (appliedDamage <= 0f)
         {
             return;
@@ -2788,6 +4410,52 @@ public sealed class GameSimulation : IDisposable
         PlayerDamageFlashSeconds = 0.32f;
         AddEvent(CombatEventType.PlayerDamaged, Player.Position, sourcePosition,
             sourceId, Player.Id, cueId, appliedDamage);
+    }
+
+    private float CalculatePermanentDamageMultiplier()
+    {
+        float armor = 0f;
+        float additionalMultiplier = PassiveEffectProduct(AffixEffectType.IncomingDamage);
+        foreach (string itemId in EquipmentLoadout.EquippedItemIds.Values
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!_equipmentItems.TryGetValue(itemId, out EquipmentInstance? item))
+            {
+                continue;
+            }
+
+            float powerScale = RpgProgressionMath.ItemPowerScale(item.ItemPower);
+            if (item.EquipmentBaseId is string baseId &&
+                _catalog.EquipmentBases.TryGetValue(baseId, out EquipmentBaseDefinition? definition))
+            {
+                armor += definition.BaseArmor * powerScale;
+            }
+
+            foreach (RolledAffix rolled in item.Affixes)
+            {
+                if (!_catalog.Affixes.TryGetValue(rolled.AffixId, out AffixDefinition? affix))
+                {
+                    continue;
+                }
+
+                if (affix.EffectType == AffixEffectType.Armor)
+                {
+                    armor += rolled.Value;
+                }
+                else if (affix.EffectType == AffixEffectType.IncomingDamage)
+                {
+                    additionalMultiplier *= Math.Clamp(rolled.Value, 0.5f, 1f);
+                }
+            }
+        }
+
+        float talentReduction = _catalog.Talents.Values
+            .Where(talent => talent.EffectType == AffixEffectType.IncomingDamage)
+            .Sum(talent => talent.ValuePerRank * Progression.TalentRanks.GetValueOrDefault(talent.Id));
+        armor += TalentBonus(AffixEffectType.Armor) + PassiveEffectAdditive(AffixEffectType.Armor);
+        float multiplier = RpgProgressionMath.ArmorDamageMultiplier(armor) *
+            additionalMultiplier * (1f - Math.Clamp(talentReduction, 0f, 0.65f));
+        return MathF.Max(0.35f, multiplier);
     }
 
     private Vector3 ApplySpread(Vector3 direction, float spreadDegrees)
@@ -2948,6 +4616,38 @@ public sealed class GameSimulation : IDisposable
         Vector3 closest = start + (segment * projected);
         fraction = projected;
         return Vector3.DistanceSquared(closest, center) <= radius * radius;
+    }
+
+    private static bool TrySegmentEnemyHit(
+        Vector3 start,
+        Vector3 end,
+        float projectileRadius,
+        EnemyState enemy,
+        out float fraction,
+        out bool weakPoint)
+    {
+        float nearestWeakPoint = float.PositiveInfinity;
+        foreach (EnemyWeakPointDefinition definition in enemy.Definition.WeakPoints)
+        {
+            if (SegmentIntersectsSphere(start, end, enemy.Position + definition.Offset,
+                    projectileRadius + definition.Radius, out float weakPointFraction))
+            {
+                nearestWeakPoint = MathF.Min(nearestWeakPoint, weakPointFraction);
+            }
+        }
+
+        if (float.IsFinite(nearestWeakPoint))
+        {
+            fraction = nearestWeakPoint;
+            weakPoint = true;
+            return true;
+        }
+
+        Vector3 enemyCenter = enemy.Position +
+            new Vector3(0f, enemy.Definition.ColliderHeight * 0.35f, 0f);
+        weakPoint = false;
+        return SegmentIntersectsSphere(start, end, enemyCenter,
+            projectileRadius + enemy.Definition.ColliderRadius, out fraction);
     }
 
     private static bool SegmentIntersectsBox(

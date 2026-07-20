@@ -17,9 +17,9 @@ All projects enable nullable reference types, deterministic builds, recommended 
 
 ## Application and run lifecycle
 
-The application opens on a live, slowly orbiting arena view with the simulation paused. Main-menu choices include Continue when a valid checkpoint exists, Start New Run, Loadout, Records, Settings, Accessibility, and Quit. The first new run opens a compact controls/objective card. Losing focus or opening the pause menu freezes both simulation and enemy animation.
+The application opens on a live, slowly orbiting arena view with the simulation paused. Main-menu choices include Continue when a valid checkpoint exists, Start New Run, Character, Inventory, Armory, Abilities, Proficiencies, Loadout, difficulty/Threat Tier selection, Records, Settings, Accessibility, and Quit. The first new run opens a compact controls/objective card. Losing focus or opening the pause menu freezes both simulation and enemy animation.
 
-`GameSimulation(ContentCatalog, RunConfiguration)` is the campaign entry point. `RunConfiguration` carries arena ID, seed, Standard difficulty, starting weapon, God Mode, first-run status, unlocked upgrade IDs, and an optional checkpoint. The legacy constructor and Training Ring wave data remain available as development fixtures.
+`GameSimulation(ContentCatalog, RunConfiguration)` is the campaign entry point. `RunConfiguration` carries arena ID, seed, one of six combat difficulties, Threat Tier, two starting weapon sets, persistent progression, God Mode, first-run status, unlocked upgrade IDs, and an optional schema-4 checkpoint. The legacy constructor and Training Ring wave data remain available as development fixtures.
 
 For a release run, `RunDirector` deterministically selects three authored sectors without replacement. The first profile run uses the authored onboarding order; later runs derive sector and encounter order from the seed. Each sector schedules one Purge, one Relay Defense, and one Elite Hunt, for nine encounters total. The first encounter of the onboarding run is always Purge. After the ninth reward, the director switches to the central three-phase Breach Walker encounter.
 
@@ -28,7 +28,7 @@ The high-level state flow is:
 ```text
 Main/Loadout
   -> EncounterActive
-  -> RewardSelection -> checkpoint
+  -> RecoveryLoot -> RewardSelection -> progression commit/checkpoint
   -> ... nine encounters/rewards
   -> BossActive
   -> Victory or Defeat
@@ -56,9 +56,9 @@ Attack damage and projectile creation occur on `EnemyAttackImpact`, not when an 
 
 ## Arena, objectives, and spawning
 
-Orbital Depot is a 72-by-56-meter arena built from four readable station quadrants around a recovery hub and boss floor. Release schema data gives every sector bounds, an entry point, objective anchor, spawn portals, and energy-gate IDs. Closing gates focus the active encounter without changing the map's geometry or the 7.5 m/s run-and-jump movement model.
+Orbital Depot is a continuously traversable 72-by-56-meter arena built from four readable station quadrants around a recovery hub and boss floor. Release schema 3 uses `OpenArena`: sector bounds remain objective, lighting, portal-weighting, floor-marking, and HUD metadata only. No player, enemy, or boss clamp uses them. The floor and visibly matching outer bulkheads are the only release collision roles; decorative machinery is non-colliding and stays overhead or beyond the walls.
 
-Sector pressure is data-driven but uses the Standard campaign defaults:
+Sector pressure is data-driven and keeps the same encounter population at every named difficulty:
 
 | Sector | Threat budget | Maximum active | Relay duration |
 |---|---:|---:|---:|
@@ -68,25 +68,29 @@ Sector pressure is data-driven but uses the Standard campaign defaults:
 
 Purge completes after the generated roster is cleared. Relay Defense protects a 450-health objective for the sector duration; enemy attacks deal half damage to the relay. Elite Hunt marks the highest-pressure generated enemy, grants it 40% more health, and leaves its damage unchanged.
 
-Spawn selection rejects occupied, blocked, or non-navigable portals and enforces a 12-to-32-meter legal range. It prefers 14 to 28 meters and off-camera positions. Every accepted spawn receives at least a 0.75-second light/event telegraph before the enemy is created. The generated roster respects the active cap and guarantees all non-boss behaviors are eligible by Sector 3.
+Spawn selection considers every arena portal, prefers the active sector, rejects occupied, blocked, or non-navigable points, and enforces a 12-to-32-meter legal range. It prefers 14 to 28 meters and off-camera positions. Every accepted spawn receives at least a 0.75-second light/event telegraph before the enemy is created. The generated roster respects the active cap and guarantees all non-boss behaviors are eligible by Sector 3.
 
 Collision, visibility, and navigation flags remain independent, so decorative station dressing never creates invisible walls. The player is an upright 1.8-meter Bepu capsule with a 7.5 m/s target speed, moderate air acceleration, and approximately 1.2-meter jump height. A 0.75-meter grid supports four-direction A*. Swept projectile tests prevent tunneling.
 
-## Weapons, upgrades, and persistence
+## Weapons, difficulty, upgrades, and persistence
 
-All six weapon slots remain available: Pulse Sidearm, Burst Carbine, Scatter Blaster, Beam Rifle, Plasma Launcher, and Arc Cannon. The run begins with the loadout weapon. After encounters one through five, a seeded unowned weapon is activated on the hub armory pad. Collecting it adds it to the current inventory and permanently unlocks it as a future starting option.
+Ten `WeaponArchetypeDefinition` files and 50 `WeaponBaseDefinition` records resolve into immutable runtime definitions. The families are Pulse, SMG, Burst, Scatter, Precision, Beam, Plasma, Arc, Heavy, and Experimental. Typed delivery, trigger, motion, and effect definitions cover hitscan/projectile/beam weapons, semi/automatic/burst/charge/continuous/spool fire, straight/ballistic/homing/returning motion, and pierce, ricochet, splash, chain, cluster, split, pull, knockback, damage-over-time, stun, ramping, and weak-point bonuses. `tools/Sync-WeaponContent.ps1` validates source models and MGCB registration without C# catalog edits.
 
-The 18 one-rank upgrades are immutable definitions. `RunModifiers` owns only the IDs selected for the current run and computes weapon-specific and general effects on demand; shared `WeaponDefinition` instances are never mutated. Offers contain three unique unlocked, unowned choices, generated deterministically from the run seed and encounter index.
+All 50 bases are selectable as Common, affix-free armory issues on a fresh profile. A run owns Set A and Set B; each set accepts one two-handed weapon, one one-handed weapon, or two independently fired one-handed weapons. A 0.35-second swap cancels charge/fire/reload and holstered heat or energy recovers at half speed. Only the active set contributes weapon stats and effects. Issued instances are distinct, run-bound, use the selected Threat Tier's minimum Item Power, and never persist or salvage.
 
-The profile starts with all six weapon-signature upgrades plus Calibrated Cells, Expanded Stores, Field Loader, Reinforced Shell, Salvage Repair, and Magnetic Salvage. The remaining six enter the offer pool through challenge completion. Persistent progression unlocks options and starting weapons only; it never grants permanent combat stats.
+Precision weapons use a true 4x camera FOV, 42% scoped look sensitivity, low magazines, slow cadence, and authored direct-hit weak-point multipliers. Enemy head/core volumes are data-authored; splash and chain damage deliberately bypass weak-point bonuses.
+
+`DifficultyDefinition` supplies Casual, Easy, Normal, Hard, Very Hard, and Extreme combat packages. Difficulty scales enemy health/damage, attack interval, projectile speed, and tells while preserving minimum tells. Threat Tier independently controls Item Power, rarity, XP/AP, and its existing health/damage scale. The two packages compose multiplicatively without changing encounter population or rewards.
+
+The 18 one-rank run boons are immutable definitions. `RunModifiers` owns only the IDs selected for the current run and computes effects on demand; shared weapon definitions are never mutated. Persistent level/talents, family proficiency, equipment ability mastery, stash loot, and threat unlocks commit once at recovery/reward checkpoints.
 
 Three independent stores live under the platform's local application-data `FPSFrenzy` directory:
 
-- `settings.json` preserves existing settings and adds a defaulted `MusicVolume` plus God Mode.
-- `profile-v1.json` stores unlock sets, selected starting weapon, challenges, tutorial state, lifetime totals, and best/recent run records.
-- `run-checkpoint-v2.json` stores the seed, onboarding-order marker, next encounter index, cumulative run/player state, starting/selected weapon state, collected weapons, owned upgrades, active armory offers, and whether God Mode was used.
+- `settings.json` preserves controls, audio, accessibility, and God Mode.
+- `profile-v2.json` (schema 3) plus its generation-matched stash store RPG progression, difficulty, both starter sets, records, and unlimited inventory.
+- `run-checkpoint-v4.json` stores deterministic campaign state, difficulty, both sets and independent hand states, issued instances, recovery loot, and pending progression.
 
-Profile and checkpoint stores write to a temporary file and atomically replace the destination. Missing, corrupt, inaccessible, or unsupported files fall back without damaging settings. A checkpoint is saved only after reward selection and is cleared on death, victory, or explicit abandonment.
+Profile/stash generations and checkpoints use atomic replacement with backup recovery. Missing, corrupt, generation-mismatched, inaccessible, or unsupported data falls back safely without damaging settings. Version-two profiles and version-three checkpoints migrate in place. A checkpoint is saved only after recovery and reward selection; Defeat commits pending encounter progression, while explicit abandonment discards it.
 
 God Mode is a persisted setting routed to `GameSimulation.SetPlayerInvulnerable`. It defaults off, blocks only incoming player damage, never heals the player, and leaves enemies, weapons, objectives, pickups, score, and unlocks unchanged. Once enabled during a run, `RunDirector` retains the marker even if it is later disabled. God Mode results remain visible but cannot replace the best unassisted record.
 
@@ -109,7 +113,7 @@ At runtime, `AnimationPlayer` linearly interpolates translation and scale, uses 
 
 The renderer remains Reach-compatible and non-PBR. Arena and prop passes use `BasicEffect`; robots use the stock `SkinnedEffect` with explicitly bound albedo, directional key/fill light, fog, a restrained emissive accent, and hit flash. Two deterministic stock-effect passes avoid introducing a second, platform-specific skinning shader: an expanded back-face shell adds a narrow additive silhouette rim, and an optional additive emissive-mask pass lights authored cores and panels. Both auxiliary passes use black fog so they fade out without adding a second copy of the arena fog color. This shell is a mobile-safe rim approximation rather than a per-pixel Fresnel calculation; it preserves the tested Reach 72-bone path on desktop and Android. Detailed robot textures build mipmaps and use linear sampling. Palette-style assets, when declared, use point sampling without mipmaps. Whole-model role tinting is not used as a material replacement.
 
-Visual calibration creates world transforms from authored height and ground anchors rather than animated bounding spheres. Ground and hover offsets prevent foot penetration and floating, movement direction drives facing, and camera-right health bars stay billboarded. The weapon renders after a depth clear to avoid wall clipping and adds procedural equip, fire recoil, reload arc, overheat shake, recovery, movement bob, and idle sway.
+Visual calibration creates world transforms from authored height and ground anchors rather than animated bounding spheres. Ground and hover offsets prevent foot penetration and floating, movement direction drives facing, and camera-right health bars stay billboarded. Weapons use normalized canonical forward/up axes, explicit muzzle/grip anchors, and validated camera-away muzzle orientation. They render model-only after a depth clear to avoid wall clipping—no placeholder primitive hands or calibration cubes are attached—and add procedural equip, fire recoil, reload arc, charge, overheat/vent, recovery, holster/swap, movement bob, and idle sway. Every family has an authored ADS FOV and focus frame; Precision ADS adds its dedicated 4x scope and weak-point reticle.
 
 The safe-area HUD shows health, weapon resource state, sector/encounter/objective progress, score, boss phase/health, reward choices, reticle and hit confirmation, subtitles, God Mode state, and the enemy compass. Enemy bearings behind the camera pin to compass edges; height differences receive chevrons, and overlapping bearings cluster.
 
@@ -130,18 +134,18 @@ Menu input supports keyboard, gamepad, pointer, and touch. Transitions wait for 
 
 `RenderCaptureService` reads the final backbuffer after HUD rendering:
 
-- F12 queues a PNG still in `artifacts/render-captures`.
-- F11 starts or stops a 15-second, 60 FPS recording and writes `frame-00000.png`-style images under a capture subdirectory.
+- Shift+F12 queues a PNG still in `artifacts/render-captures`.
+- Shift+F11 starts or stops a 15-second, 60 FPS recording and writes `frame-00000.png`-style images under a capture subdirectory. Unmodified F11 opens the Weapon/Arena Lab.
 - `FPS_FRENZY_CAPTURE_DIR` overrides the output root.
 - `FPS_FRENZY_AUTORECORD_SECONDS`, `FPS_FRENZY_RECORD_FPS`, and `FPS_FRENZY_RECORD_NAME` support deterministic automated capture runs.
 
-`tools/Capture-Motion.ps1` sets the automation variables, runs the desktop project, and invokes ffmpeg to encode the sequence as H.264/yuv420p MP4. It accepts 30 or 60 FPS and 1-to-30-second durations, plus deterministic encounter, weapon, seed, menu, and optional God Mode controls. Standard and God Mode off remain the defaults. ffmpeg is a development dependency, never a game runtime dependency.
+`tools/Capture-Motion.ps1` sets the automation variables, runs the desktop project, and invokes ffmpeg to encode the sequence as H.264/yuv420p MP4. It accepts 30 or 60 FPS and 1-to-30-second durations, plus deterministic encounter, Set A/Set B weapon, seed, menu, and optional God Mode controls. Normal and God Mode off remain the defaults. `Capture-ItemLab.ps1` enumerates all 50 bases and includes dual-wield, scoped Precision, and set-swap scenarios. ffmpeg is a development dependency, never a game runtime dependency.
 
 `tools/Capture-CharacterLab.ps1` drives the opt-in `FPS_FRENZY_CHARACTER_LAB` path. The pure `CharacterLabController` schedules each release robot across five authored animation states and three fixed camera distances. Stills freeze the sampled pose while the camera advances; state reels advance from the count of frames actually written, not wall-clock time, so the 30 and 60 FPS variants both represent exactly ten seconds. The lab uses deterministic settings and capture-local profile/checkpoint paths, never the player's files. With no Character Lab environment flag, startup follows the normal game path unchanged.
 
 ## Content validation and performance budgets
 
-Definitions and provenance are versioned JSON loaded with `System.Text.Json`. Startup and tests validate IDs and cross-references, weapon modes and output bands, enemy combat ranges and attack timing, sector bounds, portals, objectives, boss thresholds/summons, upgrade effects, animation bindings, visual offsets, texture sampling metadata, and arena navigation. The content processor rejects missing clips or albedo, invalid transforms, and skeletons above 72 bones. The machine-readable asset manifest records source URL, version, license, local name, and modifications for selected files.
+Definitions and provenance are versioned JSON loaded with `System.Text.Json`. Startup and tests validate IDs and cross-references, all 50 weapon bases, typed behaviors/effects, handedness, scopes/grips, canonical axes and camera-away muzzles, enemy weak points, difficulty composition, portals, objectives, animation bindings, texture sampling, and open-arena collision/navigation. Release validation rejects interior static colliders. The content processor rejects missing clips or albedo, invalid transforms, and skeletons above 72 bones. The machine-readable asset manifest records source URL, version, license, retained source files, generated runtime names, and orientation/assembly modifications.
 
 Training Ring and its legacy wave schema remain raw repository development fixtures and are not copied into the shipping MGCB catalog. The release Orbital Depot campaign uses sectors, generated encounters, reward progression, and the robot roster exclusively.
 

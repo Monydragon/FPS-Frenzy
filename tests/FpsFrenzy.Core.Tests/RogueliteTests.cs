@@ -82,6 +82,7 @@ public sealed class RogueliteTests
             Assert.Equal(3, offer.Choices.Select(choice => choice.Id)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Count());
             Assert.DoesNotContain(offer.Choices, choice => director.Modifiers.OwnedUpgradeIds.Contains(choice.Id));
+            director.CompleteRecovery();
             director.ChooseUpgrade(offer.Choices[0].Id);
         }
 
@@ -136,6 +137,7 @@ public sealed class RogueliteTests
     {
         RunDirector original = new(81, CreateSectors(4), StandardUpgradeCatalog.All);
         UpgradeOffer offer = original.CompleteEncounter();
+        original.CompleteRecovery();
         original.ChooseUpgrade(offer.Choices[0].Id);
         RunCheckpoint checkpoint = original.CreateCheckpoint("robot-arena", "pulse-sidearm");
 
@@ -160,6 +162,7 @@ public sealed class RogueliteTests
             StandardUpgradeCatalog.All,
             isFirstRun: true);
         UpgradeOffer offer = original.CompleteEncounter();
+        original.CompleteRecovery();
         original.ChooseUpgrade(offer.Choices[0].Id);
         RunCheckpoint checkpoint = original.CreateCheckpoint("robot-arena", "pulse-sidearm");
 
@@ -416,7 +419,7 @@ public sealed class RogueliteTests
 
         CombatEvent completion = RunUntilObjectiveResult(simulation, CombatEventType.EncounterCompleted);
 
-        Assert.Equal(RunPhase.RewardSelection, simulation.RunPhase);
+        Assert.Equal(RunPhase.RecoveryLoot, simulation.RunPhase);
         Assert.Equal(GamePhase.Playing, simulation.Phase);
         Assert.Equal(EncounterObjectiveType.Purge, simulation.LastCompletedEncounterObjective);
         Assert.Equal(1f, simulation.LastCompletedEncounterMetric);
@@ -484,7 +487,7 @@ public sealed class RogueliteTests
             () => observedMarkedElite |= simulation.Enemies.Any(enemy => enemy.IsElite));
 
         Assert.True(observedMarkedElite);
-        Assert.Equal(RunPhase.RewardSelection, simulation.RunPhase);
+        Assert.Equal(RunPhase.RecoveryLoot, simulation.RunPhase);
         Assert.Equal(EncounterObjectiveType.EliteHunt, simulation.LastCompletedEncounterObjective);
         Assert.Equal(1, simulation.CompletedEliteEncounters);
         Assert.Equal(ExpectedElitePressureWaves[0], simulation.CurrentPressureWaveNumber);
@@ -828,7 +831,7 @@ public sealed class RogueliteTests
             Checkpoint = checkpoint,
         });
 
-        for (int tick = 0; tick < 50 && simulation.ActiveBoss is null; tick++)
+        for (int tick = 0; tick < 120 && simulation.ActiveBoss is null; tick++)
         {
             simulation.Step(
             [
@@ -883,6 +886,41 @@ public sealed class RogueliteTests
                 simulation.Arena.BossArenaAnchor.Z - simulation.Arena.BossArenaHalfExtents.Z,
                 simulation.Arena.BossArenaAnchor.Z + simulation.Arena.BossArenaHalfExtents.Z);
         });
+    }
+
+    [Fact]
+    public void OpenArenaAllowsPlayerToCrossActiveSectorBoundary()
+    {
+        ContentCatalog catalog = ContentCatalog.LoadFromDirectory(
+            Path.Combine(AppContext.BaseDirectory, "Content", "Data"));
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            Seed = 1337,
+            IsFirstRun = true,
+        });
+
+        simulation.Step([]);
+        ArenaSectorDefinition sector = Assert.IsType<ArenaSectorDefinition>(simulation.ActiveSector);
+        float direction = sector.EntryPoint.X < 0f ? 1f : -1f;
+        for (int tick = 0; tick < 100; tick++)
+        {
+            simulation.Step(
+            [
+                new PlayerCommand(
+                    simulation.Tick + 1,
+                    simulation.Player.Id,
+                    new Vector2(direction, 0f),
+                    Vector2.Zero,
+                    PlayerButtons.None,
+                    -1),
+            ]);
+        }
+
+        Assert.True(
+            simulation.Player.Position.X > sector.BoundsMax.X + 0.5f ||
+            simulation.Player.Position.X < sector.BoundsMin.X - 0.5f,
+            "The active sector bounds must remain presentation-only in the release arena.");
     }
 
     [Fact]
@@ -1022,6 +1060,8 @@ public sealed class RogueliteTests
                }))
         {
             Assert.True(encounter.DebugCompleteCurrentStage());
+            Assert.Equal(RunPhase.RecoveryLoot, encounter.RunPhase);
+            encounter.CompleteRecovery();
             Assert.Equal(RunPhase.RewardSelection, encounter.RunPhase);
             UpgradeDefinition upgrade = encounter.PendingUpgradeOffers[0];
             encounter.ChooseUpgrade(upgrade.Id);

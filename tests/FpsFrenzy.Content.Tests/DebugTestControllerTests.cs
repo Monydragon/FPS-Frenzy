@@ -45,9 +45,45 @@ public sealed class DebugTestControllerTests
         DebugTestController controller = new(enabled: true);
 
         DebugTestAction action = controller.Update(
-            new KeyboardState(Keys.F5, Keys.F7, Keys.F9),
+            new KeyboardState(Keys.F2, Keys.F3, Keys.F5, Keys.F7, Keys.F9),
             runAvailable: false);
 
         Assert.Equal(DebugTestAction.None, action);
+    }
+
+    [Fact]
+    public void RpgAndLootHotkeysAreAvailableOnlyInsideDebugRuns()
+    {
+        DebugTestController controller = new(enabled: true);
+
+        DebugTestAction action = controller.Update(
+            new KeyboardState(Keys.F2, Keys.F3),
+            runAvailable: true);
+
+        Assert.True(action.HasFlag(DebugTestAction.GrantProgression));
+        Assert.True(action.HasFlag(DebugTestAction.SpawnLootShowcase));
+    }
+
+    [Fact]
+    public void F11LabExposesWeaponDifficultyThreatAndArenaShortcuts()
+    {
+        DebugTestController controller = new(enabled: false);
+        DebugTestAction opened = controller.Update(new KeyboardState(Keys.F11), runAvailable: true);
+        Assert.True(opened.HasFlag(DebugTestAction.LabModeChanged));
+        Assert.True(controller.Enabled);
+        Assert.True(controller.LabVisible);
+        controller.Update(new KeyboardState(), runAvailable: true);
+
+        DebugTestAction actions = controller.Update(new KeyboardState(
+            Keys.OemCloseBrackets, Keys.OemPlus, Keys.PageUp, Keys.I, Keys.O, Keys.T, Keys.F12),
+            runAvailable: true);
+
+        Assert.True(actions.HasFlag(DebugTestAction.NextWeapon));
+        Assert.True(actions.HasFlag(DebugTestAction.NextDifficulty));
+        Assert.True(actions.HasFlag(DebugTestAction.NextThreatTier));
+        Assert.True(actions.HasFlag(DebugTestAction.SpawnEnemy));
+        Assert.True(actions.HasFlag(DebugTestAction.ToggleAiFreeze));
+        Assert.True(actions.HasFlag(DebugTestAction.TeleportSector));
+        Assert.True(actions.HasFlag(DebugTestAction.ReloadWeaponData));
     }
 }

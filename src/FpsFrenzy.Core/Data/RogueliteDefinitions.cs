@@ -12,6 +12,21 @@ public enum EncounterObjectiveType
     Boss,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ArenaTraversalMode>))]
+public enum ArenaTraversalMode
+{
+    SectorLocked,
+    OpenArena,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<ArenaCollisionRole>))]
+public enum ArenaCollisionRole
+{
+    None,
+    Floor,
+    OuterWall,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<UpgradeEffectType>))]
 public enum UpgradeEffectType
 {
@@ -81,6 +96,7 @@ public sealed record UpgradeEffectDefinition
     public UpgradeEffectType Type { get; init; }
     public float Value { get; init; }
     public string? WeaponId { get; init; }
+    public WeaponFamily WeaponFamily { get; init; }
 }
 
 public sealed record UpgradeDefinition
@@ -100,28 +116,28 @@ public static class StandardUpgradeCatalog
     [
         Signature("pulse-capacitor", "Pulse Capacitor", "+25% sidearm damage and -15% energy cost.",
             "pulse-sidearm",
-            Effect(UpgradeEffectType.WeaponDamage, 1.25f, "pulse-sidearm"),
-            Effect(UpgradeEffectType.WeaponAmmoCost, 0.85f, "pulse-sidearm")),
+            Effect(UpgradeEffectType.WeaponDamage, 1.25f, "pulse-sidearm", WeaponFamily.Pulse),
+            Effect(UpgradeEffectType.WeaponAmmoCost, 0.85f, "pulse-sidearm", WeaponFamily.Pulse)),
         Signature("burst-synchronizer", "Burst Synchronizer", "+1 burst round and -20% spread.",
             "burst-carbine",
-            Effect(UpgradeEffectType.WeaponBurstRounds, 1f, "burst-carbine"),
-            Effect(UpgradeEffectType.WeaponSpread, 0.8f, "burst-carbine")),
+            Effect(UpgradeEffectType.WeaponBurstRounds, 1f, "burst-carbine", WeaponFamily.Burst),
+            Effect(UpgradeEffectType.WeaponSpread, 0.8f, "burst-carbine", WeaponFamily.Burst)),
         Signature("tight-choke", "Tight Choke", "-30% scatter spread and +25% falloff start.",
             "scatter-blaster",
-            Effect(UpgradeEffectType.WeaponSpread, 0.7f, "scatter-blaster"),
-            Effect(UpgradeEffectType.WeaponFalloffStart, 1.25f, "scatter-blaster")),
+            Effect(UpgradeEffectType.WeaponSpread, 0.7f, "scatter-blaster", WeaponFamily.Scatter),
+            Effect(UpgradeEffectType.WeaponFalloffStart, 1.25f, "scatter-blaster", WeaponFamily.Scatter)),
         Signature("beam-heat-sink", "Beam Heat Sink", "-25% heat and +25% cooling.",
             "beam-rifle",
-            Effect(UpgradeEffectType.WeaponHeatGeneration, 0.75f, "beam-rifle"),
-            Effect(UpgradeEffectType.WeaponCooling, 1.25f, "beam-rifle")),
+            Effect(UpgradeEffectType.WeaponHeatGeneration, 0.75f, "beam-rifle", WeaponFamily.Beam),
+            Effect(UpgradeEffectType.WeaponCooling, 1.25f, "beam-rifle", WeaponFamily.Beam)),
         Signature("plasma-payload", "Plasma Payload", "+30% splash radius and +15% projectile speed.",
             "plasma-launcher",
-            Effect(UpgradeEffectType.WeaponSplashRadius, 1.3f, "plasma-launcher"),
-            Effect(UpgradeEffectType.WeaponProjectileSpeed, 1.15f, "plasma-launcher")),
+            Effect(UpgradeEffectType.WeaponSplashRadius, 1.3f, "plasma-launcher", WeaponFamily.Plasma),
+            Effect(UpgradeEffectType.WeaponProjectileSpeed, 1.15f, "plasma-launcher", WeaponFamily.Plasma)),
         Signature("arc-relay", "Arc Relay", "+1 chain target and +20% chain radius.",
             "arc-cannon",
-            Effect(UpgradeEffectType.WeaponChainTargets, 1f, "arc-cannon"),
-            Effect(UpgradeEffectType.WeaponChainRadius, 1.2f, "arc-cannon")),
+            Effect(UpgradeEffectType.WeaponChainTargets, 1f, "arc-cannon", WeaponFamily.Arc),
+            Effect(UpgradeEffectType.WeaponChainRadius, 1.2f, "arc-cannon", WeaponFamily.Arc)),
         General("calibrated-cells", "Calibrated Cells", "+12% damage.", true,
             Effect(UpgradeEffectType.GlobalDamage, 1.12f)),
         General("accelerated-cycler", "Accelerated Cycler", "-12% fire interval.", false,
@@ -202,10 +218,15 @@ public static class StandardUpgradeCatalog
             Effects = [first, second],
         };
 
-    private static UpgradeEffectDefinition Effect(UpgradeEffectType type, float value, string? weaponId = null) => new()
+    private static UpgradeEffectDefinition Effect(
+        UpgradeEffectType type,
+        float value,
+        string? weaponId = null,
+        WeaponFamily weaponFamily = WeaponFamily.None) => new()
     {
         Type = type,
         Value = value,
         WeaponId = weaponId,
+        WeaponFamily = weaponFamily,
     };
 }

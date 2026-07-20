@@ -13,6 +13,8 @@ public sealed class StaticModelPresenter
     private readonly Vector3 _bottomCenter;
     private readonly float _maximumSpan;
     private readonly ModelTextureSampling _textureSampling;
+    private readonly Dictionary<BasicEffect, Vector3> _authoredDiffuseColors = [];
+    private readonly Dictionary<BasicEffect, Vector3> _authoredEmissiveColors = [];
 
     public StaticModelPresenter(
         Model model,
@@ -23,6 +25,11 @@ public sealed class StaticModelPresenter
         _boneTransforms = new Matrix[model.Bones.Count];
         model.CopyAbsoluteBoneTransformsTo(_boneTransforms);
         (_center, _bottomCenter, _maximumSpan) = Measure(model, _boneTransforms);
+        foreach (BasicEffect effect in model.Meshes.SelectMany(mesh => mesh.Effects).OfType<BasicEffect>())
+        {
+            _authoredDiffuseColors.TryAdd(effect, effect.DiffuseColor);
+            _authoredEmissiveColors.TryAdd(effect, effect.EmissiveColor);
+        }
     }
 
     public void Draw(
@@ -35,10 +42,15 @@ public sealed class StaticModelPresenter
         Vector3? diffuseTint = null,
         Vector3? emissiveTint = null,
         ArenaDefinition? arena = null,
-        bool anchorToGround = false)
+        bool anchorToGround = false,
+        float roll = 0f,
+        Vector3? normalizedPivotOffset = null,
+        float sourceSpanScale = 1f)
     {
         Vector3 anchor = anchorToGround ? _bottomCenter : _center;
-        Matrix world = CreateNormalizedWorld(position, targetSpan, yaw, pitch, anchor, _maximumSpan);
+        anchor += (normalizedPivotOffset ?? Vector3.Zero) * _maximumSpan;
+        float calibratedSpan = targetSpan * Math.Clamp(sourceSpanScale, 0.1f, 4f);
+        Matrix world = CreateNormalizedWorld(position, calibratedSpan, yaw, pitch, roll, anchor, _maximumSpan);
         foreach (ModelMesh mesh in _model.Meshes)
         {
             foreach (Effect effect in mesh.Effects)
@@ -59,9 +71,15 @@ public sealed class StaticModelPresenter
                 basicEffect.DirectionalLight1.DiffuseColor = new Vector3(0.2f, 0.23f, 0.32f);
                 basicEffect.DirectionalLight1.SpecularColor = new Vector3(0.04f);
                 basicEffect.DirectionalLight2.Enabled = false;
-                basicEffect.DiffuseColor = diffuseTint ?? Vector3.One;
+                basicEffect.DiffuseColor = ComposeMaterialColor(
+                    _authoredDiffuseColors.GetValueOrDefault(basicEffect, Vector3.One),
+                    diffuseTint);
                 basicEffect.AmbientLightColor = new Vector3(0.42f);
-                basicEffect.EmissiveColor = emissiveTint ?? Vector3.Zero;
+                basicEffect.EmissiveColor = Vector3.Clamp(
+                    _authoredEmissiveColors.GetValueOrDefault(basicEffect, Vector3.Zero) +
+                    (emissiveTint ?? Vector3.Zero),
+                    Vector3.Zero,
+                    Vector3.One);
                 basicEffect.PreferPerPixelLighting = false;
                 basicEffect.FogEnabled = true;
                 basicEffect.FogStart = arena?.FogStart ?? 34f;
@@ -83,10 +101,21 @@ public sealed class StaticModelPresenter
         float pitch,
         Vector3 anchor,
         float maximumSpan) =>
+        CreateNormalizedWorld(position, targetSpan, yaw, pitch, 0f, anchor, maximumSpan);
+
+    internal static Matrix CreateNormalizedWorld(
+        Vector3 position,
+        float targetSpan,
+        float yaw,
+        float pitch,
+        float roll,
+        Vector3 anchor,
+        float maximumSpan) =>
         Matrix.CreateTranslation(-anchor) *
         Matrix.CreateScale(targetSpan / maximumSpan) *
         Matrix.CreateRotationX(pitch) *
         Matrix.CreateRotationY(yaw) *
+        Matrix.CreateRotationZ(roll) *
         Matrix.CreateTranslation(position);
 
     internal static (Vector3 Center, Vector3 BottomCenter, float MaximumSpan) Measure(
@@ -108,6 +137,9 @@ public sealed class StaticModelPresenter
         Vector3 bottomCenter = new(center.X, minimum.Y, center.Z);
         return (center, bottomCenter, MathF.Max(0.001f, MathF.Max(span.X, MathF.Max(span.Y, span.Z))));
     }
+
+    internal static Vector3 ComposeMaterialColor(Vector3 authored, Vector3? tint) =>
+        Vector3.Clamp(authored * (tint ?? Vector3.One), Vector3.Zero, Vector3.One);
 }
 
 public enum ModelTextureSampling
