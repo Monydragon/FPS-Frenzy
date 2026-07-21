@@ -241,7 +241,7 @@ public static class MenuLayout
             ? safeArea.Top + (int)MathF.Round((largeText ? 225f : 205f) * referenceScale)
             : page switch
             {
-                MenuPage.Main => safeArea.Center.Y - (int)MathF.Round(82f * uiScale),
+                MenuPage.Main => safeArea.Top + (int)MathF.Round(188f * referenceScale),
                 MenuPage.Results => safeArea.Center.Y + 94,
                 MenuPage.Reward => safeArea.Center.Y - 72,
                 MenuPage.WeaponPickup => safeArea.Center.Y - 20,
@@ -271,16 +271,21 @@ public static class MenuLayout
                 Math.Max(320, safeArea.Width - expandedMapWidth - 80));
             panelLeft = safeArea.Left + 40;
         }
+        else if (page == MenuPage.Main)
+        {
+            panelWidth = Math.Min((int)MathF.Round(456f * uiScale),
+                Math.Max(280, safeArea.Width - 40));
+            panelLeft = safeArea.Right - (int)MathF.Round(36f * referenceScale) - panelWidth;
+        }
         else
         {
-            float referenceWidth = page == MenuPage.Main ? 830f : 720f;
-            panelWidth = Math.Min((int)MathF.Round(referenceWidth * uiScale),
+            panelWidth = Math.Min((int)MathF.Round(720f * uiScale),
                 Math.Max(280, safeArea.Width - 40));
             panelLeft = safeArea.Center.X - (panelWidth / 2);
         }
         int rowTop = page switch
         {
-            MenuPage.Main => safeArea.Center.Y - (int)MathF.Round(82f * uiScale),
+            MenuPage.Main => safeArea.Top + (int)MathF.Round(188f * referenceScale),
             MenuPage.Results => safeArea.Center.Y + 94,
             MenuPage.Reward => safeArea.Center.Y - 72,
             MenuPage.WeaponPickup => safeArea.Center.Y - 20,

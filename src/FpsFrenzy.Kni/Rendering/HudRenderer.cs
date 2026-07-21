@@ -274,13 +274,43 @@ public sealed class HudRenderer : IDisposable
     {
         const int width = 240;
         int x = safe.Left + 24;
-        int y = safe.Bottom - 62;
-        DrawRect(new Rectangle(x, y, width, 20), new Color(10, 16, 25, 220));
-        int fill = (int)(width * (simulation.Player.Health / simulation.Player.MaximumHealth));
-        DrawRect(new Rectangle(x + 2, y + 2, Math.Max(0, fill - 4), 16), new Color(50, 225, 140));
-        _font.Draw(_spriteBatch, "HEALTH", new Vector2(x, y - 22), Color.White, 2);
+        int top = safe.Bottom - 235;
+        DrawOutlined(new Rectangle(x - 10, top - 8, width + 20, 86),
+            new Color(5, 18, 29, 205), new Color(54, 120, 145, 155));
+
+        _font.Draw(_spriteBatch, "ARMOR", new Vector2(x, top), FocusCyan, 1);
+        _font.DrawNumber(_spriteBatch, (int)MathF.Ceiling(simulation.Player.Armor),
+            new Vector2(x + OxaniumFont.Measure("ARMOR ", 1).X, top), Color.White, 1);
+        string armorState = simulation.Player.Armor >= simulation.Player.MaximumArmor
+            ? "READY"
+            : simulation.Player.IsArmorRegenerating
+                ? "RECHARGING"
+                : $"CHARGE {MathF.Max(0f, GameSimulation.ArmorRegenerationDelaySeconds - simulation.Player.SecondsSinceDamage):0.0}";
+        Vector2 armorStateSize = OxaniumFont.Measure(armorState, 1);
+        _font.Draw(_spriteBatch, armorState, new Vector2(x + width - armorStateSize.X, top),
+            simulation.Player.IsArmorRegenerating ? SuccessTeal : SecondaryText, 1);
+        int armorFill = (int)MathF.Round((width - 4) * Math.Clamp(
+            simulation.Player.Armor / simulation.Player.MaximumArmor, 0f, 1f));
+        DrawRect(new Rectangle(x, top + 17, width, 14), new Color(7, 18, 29, 235));
+        DrawRect(new Rectangle(x + 2, top + 19, armorFill, 10), FocusCyan);
+
+        _font.Draw(_spriteBatch, "HEALTH", new Vector2(x, top + 40), SuccessTeal, 1);
         _font.DrawNumber(_spriteBatch, (int)MathF.Ceiling(simulation.Player.Health),
-            new Vector2(x + OxaniumFont.Measure("HEALTH ", 2).X, y - 22), Color.White, 2);
+            new Vector2(x + OxaniumFont.Measure("HEALTH ", 1).X, top + 40), Color.White, 1);
+        if (simulation.Player.IsHealthRegenerating)
+        {
+            string healthState = "RECOVERING";
+            Vector2 healthStateSize = OxaniumFont.Measure(healthState, 1);
+            _font.Draw(_spriteBatch, healthState,
+                new Vector2(x + width - healthStateSize.X, top + 40), SuccessTeal, 1);
+        }
+        int healthFill = (int)MathF.Round((width - 4) * Math.Clamp(
+            simulation.Player.Health / simulation.Player.MaximumHealth, 0f, 1f));
+        Color healthColor = simulation.Player.Health / simulation.Player.MaximumHealth <= 0.25f
+            ? AlertCoral
+            : SuccessTeal;
+        DrawRect(new Rectangle(x, top + 57, width, 14), new Color(7, 18, 29, 235));
+        DrawRect(new Rectangle(x + 2, top + 59, healthFill, 10), healthColor);
     }
 
     private void DrawWeapon(GameSimulation simulation, Rectangle safe)
@@ -658,16 +688,21 @@ public sealed class HudRenderer : IDisposable
 
     private void DrawDamageFeedback(GameSimulation simulation, GameSettings settings, Rectangle safe)
     {
-        if (simulation.PlayerDamageFlashSeconds <= 0f)
+        float flashSeconds = MathF.Max(simulation.PlayerDamageFlashSeconds,
+            simulation.PlayerArmorDamageFlashSeconds);
+        if (flashSeconds <= 0f)
         {
             return;
         }
 
-        float intensity = Math.Clamp(simulation.PlayerDamageFlashSeconds / 0.32f, 0f, 1f);
+        bool armorHit = simulation.PlayerArmorDamageFlashSeconds > simulation.PlayerDamageFlashSeconds;
+        float intensity = Math.Clamp(flashSeconds / (armorHit ? 0.26f : 0.32f), 0f, 1f);
         int alpha = (int)((settings.ReducedFlash ? 36f : 105f) * intensity);
-        Color color = settings.ColorVisionMode == ColorVisionMode.Protanopia
-            ? new Color(255, 210, 40, alpha)
-            : new Color(255, 35, 70, alpha);
+        Color color = armorHit
+            ? new Color(87, 220, 245, alpha)
+            : settings.ColorVisionMode == ColorVisionMode.Protanopia
+                ? new Color(255, 210, 40, alpha)
+                : new Color(255, 35, 70, alpha);
         const int edge = 28;
         DrawRect(new Rectangle(safe.Left, safe.Top, safe.Width, edge), color);
         DrawRect(new Rectangle(safe.Left, safe.Bottom - edge, safe.Width, edge), color);
@@ -770,7 +805,7 @@ public sealed class HudRenderer : IDisposable
         if (menu.Page == MenuPage.Main)
         {
             DrawTitleMenuBackground(safe);
-            DrawRect(new Rectangle(safe.Left, safe.Top, safe.Width, safe.Height), new Color(3, 9, 18, 118));
+            DrawRect(new Rectangle(safe.Left, safe.Top, safe.Width, safe.Height), new Color(3, 9, 18, 78));
         }
         else
         {
@@ -782,8 +817,12 @@ public sealed class HudRenderer : IDisposable
         }
         if (menu.Page is MenuPage.Main or MenuPage.Results)
         {
+            float emblemCenterX = menu.Page == MenuPage.Main
+                ? safe.Left + MathF.Min(safe.Width * 0.29f, 360f)
+                : safe.Center.X;
+            int emblemY = menu.Page == MenuPage.Main ? safe.Top + 43 : safe.Center.Y - 304;
             _spriteBatch.Draw(_menuEmblem,
-                new Rectangle(safe.Center.X - 28, safe.Center.Y - 304, 56, 56),
+                new Rectangle((int)MathF.Round(emblemCenterX) - 28, emblemY, 56, 56),
                 menu.Page == MenuPage.Results && simulation.Phase == GamePhase.Defeat
                     ? new Color(255, 105, 125)
                     : Color.White);
@@ -837,11 +876,16 @@ public sealed class HudRenderer : IDisposable
             MenuPage.Crafting or MenuPage.CraftingItem or MenuPage.Stats;
         int titleScale = settings.LargeHudText ? 6 : 5;
         Vector2 titleSize = OxaniumFont.Measure(title, titleScale);
-        float titleY = profileSurface
+        float titleCenterX = menu.Page == MenuPage.Main
+            ? safe.Left + MathF.Min(safe.Width * 0.29f, 360f)
+            : safe.Center.X;
+        float titleY = menu.Page == MenuPage.Main
+            ? safe.Top + 111f
+            : profileSurface
             ? safe.Top + (settings.LargeHudText ? 42f : 54f)
             : safe.Center.Y - 230;
         _font.Draw(_spriteBatch, title,
-            new Vector2(safe.Center.X - (titleSize.X / 2f), titleY), Color.White, titleScale);
+            new Vector2(titleCenterX - (titleSize.X / 2f), titleY), Color.White, titleScale);
         if (menu.IsOpen)
         {
             if (profileSurface)
@@ -850,10 +894,10 @@ public sealed class HudRenderer : IDisposable
             }
             if (menu.Page == MenuPage.Main)
             {
-                DrawCentered("ORBITAL COMMAND // LIVE OPERATIVE LINK", safe.Center.X,
-                    safe.Center.Y - 164, FocusCyan, 2);
-                DrawCentered("CHOOSE A PROTOCOL. BUILD YOUR OPERATIVE. FOLLOW THE SIGNAL.", safe.Center.X,
-                    safe.Center.Y - 130, SecondaryText, 1);
+                DrawCentered("ORBITAL COMMAND // LIVE LINK", (int)MathF.Round(titleCenterX),
+                    safe.Top + 166, FocusCyan, 2);
+                DrawCentered("BUILD YOUR OPERATIVE. FOLLOW THE SIGNAL.", (int)MathF.Round(titleCenterX),
+                    safe.Top + 197, SecondaryText, 1);
             }
             else if (menu.Page == MenuPage.AdventureSetup)
             {
@@ -1112,12 +1156,18 @@ public sealed class HudRenderer : IDisposable
                         DrawRect(new Rectangle(card.Left, card.Top, fillWidth, card.Height),
                             new Color(accent, settings.ReducedFlash ? 28 : 44));
                         DrawSelectionBrackets(card);
+                        DrawRect(new Rectangle(card.Left + 47,
+                            card.Top + (settings.LargeHudText ? 32 : 23), card.Width - 59, 17),
+                            new Color(3, 20, 30, 218));
                     }
 
                     string number = $"0{index + 1}";
-                    _font.Draw(_spriteBatch, number, new Vector2(card.Left + 18, card.Top + 12),
-                        selected ? accent : SecondaryText, 1);
-                    _font.Draw(_spriteBatch, rows[index], new Vector2(card.Left + 58, card.Top + 7),
+                    bool largeMainText = settings.LargeHudText;
+                    _font.Draw(_spriteBatch, number, new Vector2(card.Left + 16,
+                        card.Top + (largeMainText ? 17 : 10)),
+                        selected ? new Color(4, 48, 62) : SecondaryText, 1);
+                    _font.Draw(_spriteBatch, rows[index], new Vector2(card.Left + 52,
+                        card.Top + (largeMainText ? 2 : 3)),
                         Color.White, rowScale);
                     string description = index switch
                     {
@@ -1128,10 +1178,9 @@ public sealed class HudRenderer : IDisposable
                         4 => "GAMEPLAY + ACCESSIBILITY",
                         _ => "END OPERATIVE SESSION",
                     };
-                    Vector2 descriptionSize = OxaniumFont.Measure(description, 1);
                     _font.Draw(_spriteBatch, description,
-                        new Vector2(card.Right - descriptionSize.X - 22, card.Top + 14),
-                        selected ? accent : SecondaryText, 1);
+                        new Vector2(card.Left + 52, card.Top + (largeMainText ? 35 : 25)),
+                        selected ? FocusCyan : SecondaryText, 1);
                     continue;
                 }
                 _spriteBatch.Draw(_menuButton,
@@ -1203,8 +1252,9 @@ public sealed class HudRenderer : IDisposable
                     ? "ARROWS/DPAD/LS CHOOSE  ENTER/A CONFIRM  ESC/B LEAVE"
                 : "ARROWS/DPAD/LS ADJUST  ENTER/A SELECT  ESC/B BACK  LB/RB TABS";
             Vector2 helpSize = OxaniumFont.Measure(help, 1);
+            float helpCenterX = menu.Page == MenuPage.Main ? layout.Panel.Center.X : safe.Center.X;
             _font.Draw(_spriteBatch, help,
-                new Vector2(safe.Center.X - (helpSize.X / 2f), safe.Bottom - 52), new Color(180, 220, 235), 1);
+                new Vector2(helpCenterX - (helpSize.X / 2f), safe.Bottom - 42), new Color(180, 220, 235), 1);
             return;
         }
 

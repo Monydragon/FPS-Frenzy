@@ -660,29 +660,91 @@ public sealed class SimulationTests
             enemyAttackDamage: 60f);
         using GameSimulation simulation = CreateSimulation(catalog);
 
-        for (int tick = 0; tick < 180 && simulation.Player.Health == simulation.Player.MaximumHealth; tick++)
+        float maximumSurvivability = simulation.Player.MaximumHealth + simulation.Player.MaximumArmor;
+        for (int tick = 0; tick < 180 &&
+            simulation.Player.Health + simulation.Player.Armor == maximumSurvivability; tick++)
         {
             simulation.Step([]);
         }
 
-        float damagedHealth = simulation.Player.Health;
-        Assert.True(damagedHealth < simulation.Player.MaximumHealth);
+        float damagedSurvivability = simulation.Player.Health + simulation.Player.Armor;
+        Assert.True(damagedSurvivability < maximumSurvivability);
         simulation.SetPlayerInvulnerable(true);
-        Assert.Equal(damagedHealth, simulation.Player.Health);
+        Assert.Equal(damagedSurvivability, simulation.Player.Health + simulation.Player.Armor);
         for (int tick = 0; tick < 120; tick++)
         {
             simulation.Step([]);
         }
 
-        Assert.Equal(damagedHealth, simulation.Player.Health);
+        Assert.Equal(damagedSurvivability, simulation.Player.Health + simulation.Player.Armor);
         simulation.SetPlayerInvulnerable(false);
-        for (int tick = 0; tick < 120 && simulation.Player.Health == damagedHealth; tick++)
+        for (int tick = 0; tick < 120 &&
+            simulation.Player.Health + simulation.Player.Armor == damagedSurvivability; tick++)
         {
             simulation.Step([]);
         }
 
-        Assert.True(simulation.Player.Health < damagedHealth);
+        Assert.True(simulation.Player.Health + simulation.Player.Armor < damagedSurvivability);
         Assert.Equal(DifficultyMode.Normal, simulation.Difficulty);
+    }
+
+    [Fact]
+    public void RechargeableArmorAbsorbsDamageBeforeHealthAndWaitsFourSeconds()
+    {
+        using GameSimulation simulation = CreateSimulation(
+            CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: false));
+
+        simulation.DamagePlayerForTesting(25f);
+
+        Assert.Equal(simulation.Player.MaximumHealth, simulation.Player.Health);
+        Assert.Equal(75f, simulation.Player.Armor, 3);
+        Assert.Equal(0f, simulation.Player.SecondsSinceDamage);
+        Assert.True(simulation.PlayerArmorDamageFlashSeconds > 0f);
+        Assert.Contains(simulation.CombatEvents, combatEvent =>
+            combatEvent.Type == CombatEventType.PlayerDamaged && combatEvent.Value == 25f);
+
+        simulation.SetPlayerInvulnerable(true);
+        for (int tick = 0; tick < 234; tick++)
+        {
+            simulation.Step([]);
+        }
+
+        Assert.Equal(75f, simulation.Player.Armor, 3);
+        Assert.False(simulation.Player.IsArmorRegenerating);
+        for (int tick = 0; tick < 20; tick++)
+        {
+            simulation.Step([]);
+        }
+
+        Assert.True(simulation.Player.Armor > 75f);
+        Assert.True(simulation.Player.IsArmorRegenerating);
+    }
+
+    [Fact]
+    public void HealthRecoveryWaitsUntilRechargeableArmorIsFull()
+    {
+        using GameSimulation simulation = CreateSimulation(
+            CreateCombatCatalog(ShotMode.Hitscan, includeWeaponPickup: false));
+        simulation.Player.Armor = 0f;
+        simulation.DamagePlayerForTesting(35f);
+        simulation.SetPlayerInvulnerable(true);
+
+        Assert.Equal(65f, simulation.Player.Health, 3);
+        for (int tick = 0; tick < 420; tick++)
+        {
+            simulation.Step([]);
+        }
+
+        Assert.Equal(65f, simulation.Player.Health, 3);
+        Assert.True(simulation.Player.Armor < simulation.Player.MaximumArmor);
+        for (int tick = 0; tick < 35; tick++)
+        {
+            simulation.Step([]);
+        }
+
+        Assert.Equal(simulation.Player.MaximumArmor, simulation.Player.Armor, 3);
+        Assert.True(simulation.Player.Health > 65f);
+        Assert.True(simulation.Player.IsHealthRegenerating);
     }
 
     [Fact]

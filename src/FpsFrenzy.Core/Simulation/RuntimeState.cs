@@ -107,6 +107,11 @@ public sealed class PlayerState
     public bool IsAiming { get; internal set; }
     public float Health { get; internal set; } = 100f;
     public float MaximumHealth { get; internal set; } = 100f;
+    public float Armor { get; internal set; } = GameSimulation.BaseMaximumArmor;
+    public float MaximumArmor { get; internal set; } = GameSimulation.BaseMaximumArmor;
+    public float SecondsSinceDamage { get; internal set; } = float.PositiveInfinity;
+    public bool IsArmorRegenerating { get; internal set; }
+    public bool IsHealthRegenerating { get; internal set; }
     public float AdrenalSeconds { get; internal set; }
     public List<WeaponState> Weapons { get; } = [];
     public int SelectedWeaponIndex { get; internal set; }

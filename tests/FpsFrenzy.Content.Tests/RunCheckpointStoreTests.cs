@@ -29,6 +29,11 @@ public sealed class RunCheckpointStoreTests : IDisposable
             StartingWeaponId = "arc-cannon",
             IsFirstRun = true,
             GodModeUsed = true,
+            PlayerHealth = 72f,
+            PlayerMaximumHealth = 110f,
+            PlayerArmor = 31f,
+            PlayerMaximumArmor = GameSimulation.BaseMaximumArmor,
+            PlayerSecondsSinceDamage = 1.75f,
             OwnedUpgradeIds = ["calibrated-cells", "field-loader"],
             NewlyUnlockedIds = ["arc-cannon"],
             ProfileUnlockBaselineIds = ["pulse-sidearm", "calibrated-cells"],
@@ -42,6 +47,9 @@ public sealed class RunCheckpointStoreTests : IDisposable
         Assert.Equal(checkpoint.OwnedUpgradeIds, restored.OwnedUpgradeIds);
         Assert.Equal(checkpoint.NewlyUnlockedIds, restored.NewlyUnlockedIds);
         Assert.Equal(checkpoint.ProfileUnlockBaselineIds, restored.ProfileUnlockBaselineIds);
+        Assert.Equal(checkpoint.PlayerArmor, restored.PlayerArmor);
+        Assert.Equal(checkpoint.PlayerMaximumArmor, restored.PlayerMaximumArmor);
+        Assert.Equal(checkpoint.PlayerSecondsSinceDamage, restored.PlayerSecondsSinceDamage);
         Assert.True(store.Clear());
         Assert.Null(store.Load());
     }

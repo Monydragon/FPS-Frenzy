@@ -201,7 +201,12 @@ public sealed class RunCheckpointStore
                 checkpoint.OwnedUpgradeIds.Count ||
             (checkpoint.PlayerHealth is float playerHealth && !IsFiniteNonNegative(playerHealth)) ||
             (checkpoint.PlayerMaximumHealth is float maximumHealth &&
-                (!float.IsFinite(maximumHealth) || maximumHealth <= 0f)))
+                (!float.IsFinite(maximumHealth) || maximumHealth <= 0f)) ||
+            (checkpoint.PlayerArmor is float playerArmor && !IsFiniteNonNegative(playerArmor)) ||
+            (checkpoint.PlayerMaximumArmor is float maximumArmor &&
+                (!float.IsFinite(maximumArmor) || maximumArmor <= 0f)) ||
+            (checkpoint.PlayerSecondsSinceDamage is float secondsSinceDamage &&
+                !IsFiniteNonNegative(secondsSinceDamage)))
         {
             return false;
         }

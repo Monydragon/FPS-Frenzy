@@ -193,7 +193,7 @@ public sealed class RogueliteTests
         });
         bool attackStarted = false;
         bool attackImpacted = false;
-        float healthAtStart = 0f;
+        float survivabilityAtStart = 0f;
         for (int tick = 0; tick < 240 && !attackImpacted; tick++)
         {
             simulation.Step([]);
@@ -201,7 +201,7 @@ public sealed class RogueliteTests
                 combatEvent.Type == CombatEventType.EnemyAttackStarted))
             {
                 attackStarted = true;
-                healthAtStart = simulation.Player.Health;
+                survivabilityAtStart = simulation.Player.Health + simulation.Player.Armor;
             }
 
             if (simulation.CombatEvents.Any(combatEvent =>
@@ -212,13 +212,14 @@ public sealed class RogueliteTests
 
             if (attackStarted && !attackImpacted)
             {
-                Assert.Equal(healthAtStart, simulation.Player.Health);
+                Assert.Equal(survivabilityAtStart,
+                    simulation.Player.Health + simulation.Player.Armor);
             }
         }
 
         Assert.True(attackStarted);
         Assert.True(attackImpacted);
-        Assert.True(simulation.Player.Health < healthAtStart);
+        Assert.True(simulation.Player.Health + simulation.Player.Armor < survivabilityAtStart);
     }
 
     [Fact]
@@ -552,6 +553,8 @@ public sealed class RogueliteTests
             IsFirstRun = true,
             PlayerHealth = 20f,
             PlayerMaximumHealth = 100f,
+            PlayerArmor = 0f,
+            PlayerMaximumArmor = GameSimulation.BaseMaximumArmor,
         };
         using GameSimulation simulation = new(catalog, new RunConfiguration { Checkpoint = checkpoint });
 
@@ -671,6 +674,9 @@ public sealed class RogueliteTests
             SelectedWeaponId = "pulse-sidearm",
             PlayerHealth = 47.5f,
             PlayerMaximumHealth = 120f,
+            PlayerArmor = 36.5f,
+            PlayerMaximumArmor = GameSimulation.BaseMaximumArmor,
+            PlayerSecondsSinceDamage = 2.25f,
             SimulationTick = 12_345,
             RandomState = 0x1234_5678u,
             ElapsedRunSeconds = 234.5f,
@@ -694,6 +700,9 @@ public sealed class RogueliteTests
 
         Assert.Equal(47.5f, simulation.Player.Health);
         Assert.Equal(120f, simulation.Player.MaximumHealth);
+        Assert.Equal(36.5f, simulation.Player.Armor);
+        Assert.Equal(GameSimulation.BaseMaximumArmor, simulation.Player.MaximumArmor);
+        Assert.Equal(2.25f, simulation.Player.SecondsSinceDamage);
         Assert.Equal(12_345u, simulation.Tick);
         Assert.Equal(3, simulation.Player.CurrentWeapon.Magazine);
         Assert.Equal(17, simulation.Player.CurrentWeapon.Reserve);
@@ -716,6 +725,9 @@ public sealed class RogueliteTests
         RunCheckpoint saved = Assert.IsType<RunCheckpoint>(simulation.CreateRunCheckpoint());
         Assert.Equal(checkpoint.PlayerHealth, saved.PlayerHealth);
         Assert.Equal(checkpoint.PlayerMaximumHealth, saved.PlayerMaximumHealth);
+        Assert.Equal(checkpoint.PlayerArmor, saved.PlayerArmor);
+        Assert.Equal(checkpoint.PlayerMaximumArmor, saved.PlayerMaximumArmor);
+        Assert.Equal(checkpoint.PlayerSecondsSinceDamage, saved.PlayerSecondsSinceDamage);
         Assert.Equal(checkpoint.SimulationTick, saved.SimulationTick);
         Assert.Equal(checkpoint.RandomState, saved.RandomState);
         WeaponCheckpointState savedWeapon = Assert.Single(saved.WeaponStates);

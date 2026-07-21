@@ -10,6 +10,11 @@ public sealed class GameSimulation : IDisposable
     public const float PlayerMoveSpeed = 7.5f;
     public const float PlayerEyeHeight = 1.65f;
     public const float AdventureInteractionRadius = 4.25f;
+    public const float BaseMaximumArmor = 100f;
+    public const float ArmorRegenerationDelaySeconds = 4f;
+    public const float ArmorRegenerationPerSecond = 30f;
+    public const float HealthRegenerationDelaySeconds = 7f;
+    public const float HealthRegenerationPerSecond = 10f;
 
     private sealed record QuickbarCandidate(
         StarterWeaponReference Reference,
@@ -627,6 +632,7 @@ public sealed class GameSimulation : IDisposable
     public float LastHitSeconds { get; private set; } = 99f;
     public float LastKillSeconds { get; private set; } = 99f;
     public float PlayerDamageFlashSeconds { get; private set; }
+    public float PlayerArmorDamageFlashSeconds { get; private set; }
     public IReadOnlyList<CombatEvent> CombatEvents => _combatEvents;
     public bool IsBossWave => _adventureDirector is not null
         ? _adventureDirector.Snapshot().StageKind == AdventureStageKind.Boss
@@ -691,8 +697,10 @@ public sealed class GameSimulation : IDisposable
         LastHitSeconds += fixedDeltaSeconds;
         LastKillSeconds += fixedDeltaSeconds;
         PlayerDamageFlashSeconds = MathF.Max(0f, PlayerDamageFlashSeconds - fixedDeltaSeconds);
+        PlayerArmorDamageFlashSeconds = MathF.Max(0f, PlayerArmorDamageFlashSeconds - fixedDeltaSeconds);
         _emergencyBarrierSeconds = MathF.Max(0f, _emergencyBarrierSeconds - fixedDeltaSeconds);
         Player.AdrenalSeconds = MathF.Max(0f, Player.AdrenalSeconds - fixedDeltaSeconds);
+        UpdatePlayerRegeneration(fixedDeltaSeconds);
         Player.PreviousPosition = Player.Position;
         UpdatePlayer(command, fixedDeltaSeconds);
         UpdateAbilities(command, fixedDeltaSeconds);
@@ -1598,6 +1606,19 @@ public sealed class GameSimulation : IDisposable
         Player.Health = checkpoint.PlayerHealth is float savedHealth && float.IsFinite(savedHealth)
             ? Math.Clamp(savedHealth, 0f, Player.MaximumHealth)
             : Player.MaximumHealth;
+        Player.MaximumArmor = checkpoint.PlayerMaximumArmor is float savedMaximumArmor &&
+            float.IsFinite(savedMaximumArmor) && savedMaximumArmor > 0f
+                ? savedMaximumArmor
+                : BaseMaximumArmor;
+        Player.Armor = checkpoint.PlayerArmor is float savedArmor && float.IsFinite(savedArmor)
+            ? Math.Clamp(savedArmor, 0f, Player.MaximumArmor)
+            : Player.MaximumArmor;
+        Player.SecondsSinceDamage = checkpoint.PlayerSecondsSinceDamage is float savedDamageAge &&
+            float.IsFinite(savedDamageAge) && savedDamageAge >= 0f
+                ? savedDamageAge
+                : Player.Health < Player.MaximumHealth || Player.Armor < Player.MaximumArmor
+                    ? 0f
+                    : float.PositiveInfinity;
         Tick = checkpoint.SimulationTick;
         ElapsedRunSeconds = NonNegativeFinite(checkpoint.ElapsedRunSeconds);
         Score = Math.Max(0, checkpoint.Score);
@@ -1651,6 +1672,11 @@ public sealed class GameSimulation : IDisposable
                 .ToList(),
             PlayerHealth = Player.Health,
             PlayerMaximumHealth = Player.MaximumHealth,
+            PlayerArmor = Player.Armor,
+            PlayerMaximumArmor = Player.MaximumArmor,
+            PlayerSecondsSinceDamage = float.IsFinite(Player.SecondsSinceDamage)
+                ? Player.SecondsSinceDamage
+                : null,
             SimulationTick = Tick,
             RandomState = _randomState,
             ElapsedRunSeconds = ElapsedRunSeconds,
@@ -5442,6 +5468,37 @@ public sealed class GameSimulation : IDisposable
         return true;
     }
 
+    private void UpdatePlayerRegeneration(float deltaSeconds)
+    {
+        Player.IsArmorRegenerating = false;
+        Player.IsHealthRegenerating = false;
+        if (Player.Health <= 0f)
+        {
+            return;
+        }
+
+        if (float.IsFinite(Player.SecondsSinceDamage))
+        {
+            Player.SecondsSinceDamage += deltaSeconds;
+        }
+
+        if (Player.Armor < Player.MaximumArmor &&
+            Player.SecondsSinceDamage >= ArmorRegenerationDelaySeconds)
+        {
+            Player.Armor = MathF.Min(Player.MaximumArmor,
+                Player.Armor + (ArmorRegenerationPerSecond * deltaSeconds));
+            Player.IsArmorRegenerating = true;
+        }
+
+        if (Player.Armor >= Player.MaximumArmor && Player.Health < Player.MaximumHealth &&
+            Player.SecondsSinceDamage >= HealthRegenerationDelaySeconds)
+        {
+            Player.Health = MathF.Min(Player.MaximumHealth,
+                Player.Health + (HealthRegenerationPerSecond * deltaSeconds));
+            Player.IsHealthRegenerating = true;
+        }
+    }
+
     private bool TryApplyHealth(int amount)
     {
         if (Player.Health >= Player.MaximumHealth)
@@ -5492,6 +5549,9 @@ public sealed class GameSimulation : IDisposable
         return true;
     }
 
+    internal void DamagePlayerForTesting(float damage) =>
+        DamagePlayer(damage, EntityId.None, Player.Position, "test-damage");
+
     private void DamagePlayer(float damage, EntityId sourceId, Vector3 sourcePosition, string cueId)
     {
         if (damage <= 0f || Player.Health <= 0f || GodModeEnabled || _emergencyBarrierSeconds > 0f)
@@ -5510,17 +5570,32 @@ public sealed class GameSimulation : IDisposable
             return;
         }
 
-        if (_emergencyBarrierAvailable && Player.Health - appliedDamage < 20f)
+        float armorDamage = MathF.Min(Player.Armor, appliedDamage);
+        float healthDamage = appliedDamage - armorDamage;
+        if (_emergencyBarrierAvailable && healthDamage > 0f && Player.Health - healthDamage < 20f)
         {
-            appliedDamage = MathF.Max(0f, Player.Health - 20f);
+            healthDamage = MathF.Max(0f, Player.Health - 20f);
+            appliedDamage = armorDamage + healthDamage;
             _emergencyBarrierAvailable = false;
             _emergencyBarrierSeconds = 1f;
         }
 
-        Player.Health = MathF.Max(0f, Player.Health - appliedDamage);
+        Player.Armor = MathF.Max(0f, Player.Armor - armorDamage);
+        Player.Health = MathF.Max(0f, Player.Health - healthDamage);
+        Player.SecondsSinceDamage = 0f;
+        Player.IsArmorRegenerating = false;
+        Player.IsHealthRegenerating = false;
         _damageAppliedThisTick += appliedDamage;
         DamageTaken += appliedDamage;
-        PlayerDamageFlashSeconds = 0.32f;
+        if (healthDamage > 0f)
+        {
+            PlayerDamageFlashSeconds = 0.32f;
+            PlayerArmorDamageFlashSeconds = 0f;
+        }
+        else
+        {
+            PlayerArmorDamageFlashSeconds = 0.26f;
+        }
         AddEvent(CombatEventType.PlayerDamaged, Player.Position, sourcePosition,
             sourceId, Player.Id, cueId, appliedDamage);
     }

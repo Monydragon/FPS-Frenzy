@@ -72,6 +72,9 @@ public sealed record RunCheckpoint
     public List<string> ProfileUnlockBaselineIds { get; init; } = [];
     public float? PlayerHealth { get; init; }
     public float? PlayerMaximumHealth { get; init; }
+    public float? PlayerArmor { get; init; }
+    public float? PlayerMaximumArmor { get; init; }
+    public float? PlayerSecondsSinceDamage { get; init; }
     public uint SimulationTick { get; init; }
     public uint RandomState { get; init; }
     public float ElapsedRunSeconds { get; init; }
