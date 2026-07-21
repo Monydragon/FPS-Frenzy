@@ -38,7 +38,7 @@ public sealed class HudResultLayoutTests
         string rendered = string.Join('\n', lines.Select(line => line.Text));
 
         Assert.True(lines.Count <= HudRenderer.MaximumResultDetailLines);
-        Assert.All(lines, line => Assert.True(PixelFont.Measure(line.Text, 1).X <= 720f));
+        Assert.All(lines, line => Assert.True(OxaniumFont.Measure(line.Text, 1).X <= 720f));
         Assert.All(unlocks.Concat(build), id =>
             Assert.Contains(id.Replace('-', ' ').ToUpperInvariant(), rendered, StringComparison.Ordinal));
     }

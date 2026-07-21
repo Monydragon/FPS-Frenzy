@@ -1,10 +1,12 @@
 # FPS Frenzy
 
-FPS Frenzy is an offline, single-player robot arena roguelite built with C# 14, .NET 10, and KNI (the MonoGame/XNA-compatible fork). It does not use Unity.
+FPS Frenzy is an offline, single-player robot action roguelite with Arena and Adventure modes, built with C# 14, .NET 10, and KNI (the MonoGame/XNA-compatible fork). It does not use Unity.
 
 Each run sends the player through three seeded sectors of the continuously accessible 72-by-56-meter Orbital Depot. Every sector contains a Purge, Relay Defense, and Elite Hunt encounter. The sectors provide visual identity and objective direction without invisible barriers: players and enemies can cross the complete unobstructed floor during every encounter and the boss fight. Robot reinforcements arrive through telegraphed portals, and each completed encounter pauses for one of three non-stacking upgrade choices. After nine encounters, the run returns to the central arena for the three-phase Breach Walker fight.
 
-The player keeps the classic 7.5 m/s run-and-jump moveset while using slot-authentic persistent equipment: armor, two accessories, two rings, and two swappable weapon sets with independent right/left hands. One-handed weapons can be dual-wielded and two-handed weapons reserve both hands. All 50 behavioral weapon bases across ten proficiency families are available as Common armory issues on a fresh profile, including scoped Precision rifles, SMGs, Heavy weapons, and Experimental weapons. Item Power, rarity, affixes, talents, learned equipment abilities, and ten selectable threat tiers provide persistent RPG progression. Casual, Easy, Normal, Hard, Very Hard, and Extreme independently tune combat behavior; the nine three-choice boons remain temporary run modifiers.
+Adventure Mode, **The Null Signal**, generates three deterministic derelict-station floors from a player-visible decimal seed. Maintenance Deck, Fabrication Ring, and Signal Core use exploration objectives, story transmissions, patrols, energy gates, floor-specific hazards, two or three seeded loot chests, persistent lore, secrets, and one three-choice boon per floor before the shield-locked Core Warden fight. Chests guarantee weapons from missing quickbar families before applying an elevated general weapon chance, encouraging experimentation throughout a run. The same seed, generator version, and floor always reconstruct the same room graph, geometry, roles, objectives, dressing, and enemy roster.
+
+The player starts with a Pulse Sidearm pistol and keeps the classic 7.5 m/s run-and-jump moveset while using slot-authentic persistent equipment: armor, two accessories, two rings, and two swappable weapon sets with independent right/left hands. One-handed weapons can be dual-wielded and two-handed weapons reserve both hands. All 50 behavioral weapon bases across ten proficiency families are available as Common armory issues on a fresh profile, including scoped Precision rifles, SMGs, Heavy weapons, and Experimental weapons. Item Power, rarity, affixes, talents, learned equipment abilities, and ten selectable threat tiers provide persistent RPG progression. Casual through Extreme tune combat behavior and supply scarcity; harder difficulties add stronger rarity luck. The nine three-choice boons remain temporary run modifiers.
 
 The release enemy faction uses textured Quaternius robots: Striker, Interceptor, Juggernaut, Wasp, Warden, and the Breach Walker boss. Their authored albedo textures, calibrated placement, telegraphed attacks, state-driven animation, hit reactions, held death poses, emissive accents, and camera-facing health bars replace the former flat-tinted monster presentation. Authored CC0 sound effects and music replace generated tones.
 
@@ -36,17 +38,21 @@ Desktop uses SDL2/OpenGL. Android uses OpenGL ES, landscape touch controls, and 
 
 ## Gameplay loop
 
-The main menu provides Continue/New Run, Character, Inventory, Armory, Abilities, Proficiencies, Difficulty/Threat Tier, Loadout, Debug Lab, Records, Settings, Accessibility, and Quit. The quickbar has one canonical slot for each family: Pulse, SMG, Burst, Scatter, Precision, Beam, Plasma, Arc, Heavy, and Experimental. Missing families auto-fill from ground drops without forcing a switch; competing drops pause for Replace, Dismantle, or Leave. Debug Lab is a non-persistent, invulnerable arena sandbox with all ten family slots populated, every release enemy, and one equipment drop of each rarity; J/K or `[`/`]` cycles all 50 weapons without restarting the arena. Inventory/loadout changes and free talent respecs are between-run or recovery-hub actions. A first-run card explains the controls and objectives.
+The industrial-holographic main menu presents original orbital-station key art and groups Play, Operative, Arsenal, Records, Settings, and Quit. Play exposes independent Continue/New actions for Adventure and Arena plus Debug Lab; Records has separate tabs for both modes. Operative contains Character, Abilities, Proficiencies, and Stats, while Arsenal contains Inventory, Loadout, Crafting, and Armory. Crowded pages use clipped seven-row viewports with scroll rails, mouse-wheel and touch-drag scrolling, clickable arrows, and automatic controller focus tracking. The quickbar has one canonical slot for each family: Pulse, SMG, Burst, Scatter, Precision, Beam, Plasma, Arc, Heavy, and Experimental. Missing families auto-fill from ground drops without forcing a switch; competing drops pause for Replace, Dismantle, or Leave. Debug Lab is a non-persistent, invulnerable arena sandbox with all ten family slots populated, every release enemy, and one equipment drop of each rarity; J/K or `[`/`]` cycles all 50 weapons without restarting the arena. Inventory/loadout changes and free talent respecs are between-run or recovery-hub actions. A first-run card explains the controls and objectives.
 
 The complete loop is:
 
 ```text
-Main Menu -> Character/Loadout/Difficulty/Threat Tier -> New/Continue Run
+Arena:     Main Menu -> Operative/Arsenal -> New/Continue Arena
           -> encounter -> recovery loot/cache -> boon/checkpoint (x9)
           -> Breach Walker -> Results/unlocks -> Retry/Menu
+
+Adventure: Main Menu -> seed setup/New/Continue Adventure
+          -> explore/objectives/chests -> exit lift -> boon/commit/checkpoint (x3)
+          -> Core Warden -> Results/lore -> Retry/Menu
 ```
 
-Checkpoints are written only after recovery and boon selection, so persistent XP, proficiency XP, equipment AP, and loot commit exactly once. Defeat keeps the current encounter's earned progress; explicit abandonment restores the last completed checkpoint. Results include difficulty and threat tier, both starting weapon sets, XP/levels, per-weapon proficiency gains, mastered abilities, loot rarity totals, highest Item Power, unlocks, and the God Mode marker.
+Arena checkpoints are written after recovery and boon selection. Adventure checkpoints are written at run entry and only after each floor boon; defeat or quitting mid-floor restores that stage entrance and discards uncommitted floor rewards. Results include mode, difficulty and threat tier, seed, generator version/hash where applicable, floor/sector progress, both starting weapon sets, progression deltas, loot, and the God Mode marker.
 
 ## Controls
 
@@ -55,11 +61,12 @@ Checkpoints are written only after recovery and boon selection, so persistent XP
 - Fire Right: left mouse, right trigger, or right FIRE touch button
 - Fire Left: right mouse, left trigger, or left FIRE touch button
 - ADS/focus: Shift, gamepad LT for a single weapon, gamepad RS while dual-wielding, or the Android ADS toggle
-- Interact/loot: E, gamepad D-pad Up, or the context touch prompt
+- Activate/use/loot: E, Xbox X / PlayStation Square, or the context touch prompt
 - Abilities: Q/F, gamepad LB/RB, or the two ability touch buttons
-- Reload both eligible hands: R, gamepad X, or reload touch button; either hand may keep firing while the other reloads
+- Reload both eligible hands: R, gamepad D-pad Down, or reload touch button; either hand may keep firing while the other reloads
 - Select weapon slot: 1-0 or mouse wheel; gamepad Y/B or D-pad Right/Left cycles next/previous; touch has next/previous controls
-- Jump: Space, gamepad A, or JUMP touch button
+- Jump: Space, gamepad A / PlayStation Cross, or JUMP touch button
+- Controller rebinding: Settings -> Controller Bindings; select an action and press a new button. Conflicts swap automatically, and bindings persist in `settings.json`.
 - Menus: arrow keys/D-pad or pointer/touch; Enter/Space/A selects; Escape/Back/B returns
 - Pause: Escape/Back, gamepad Start, or the Android PAUSE button
 - God Mode: toggle in Settings; the HUD displays a badge while enabled
@@ -79,13 +86,14 @@ For automated developer runs, set `FPS_FRENZY_DEBUG=1`. Optional `FPS_FRENZY_DEB
 
 ## Local saves
 
-Settings, profile progression, and the active checkpoint are separate versioned files in the platform's local application-data `FPSFrenzy` directory:
+Settings, shared profile progression, and the independent mode checkpoints are separate versioned files in the platform's local application-data `FPSFrenzy` directory:
 
 - `settings.json` stores controls, graphics, accessibility, Master/Music/SFX volumes, and God Mode.
-- `profile-v2.json` (schema 3) and its generation-matched `.stash` store level/XP, talents, salvage, proficiency, ability mastery/loadout, difficulty, both starter weapon sets, threat unlocks, equipped item IDs, unlimited stash, legacy discovery history, and records.
+- `profile-v2.json` (schema 6) and its generation-matched `.stash` store shared level/XP, talents, salvage, proficiency, ability mastery/loadout, difficulty, both starter weapon sets, threat unlocks, equipped item IDs, unlimited stash, discovered lore, completion state, and separate Arena/Adventure records.
 - `run-checkpoint-v4.json` stores deterministic encounter state, difficulty, both weapon sets and independent states, issued items, pending progression and loot, recovery cache, ability cooldowns, drop serial, and run-result deltas.
+- `adventure-checkpoint-v1.json` stores Adventure ID, seed, generator version/hash, next stage, story position, boons, stats, loadout/weapon state, and committed floor rewards; live enemies, gates, and visited-map state are reconstructed at stage entry.
 
-Profile and stash writes use matching atomic generations and paired backups. A mismatch, corruption, or unsupported version loads the newest matching backup without overwriting settings. Schema-v1 profiles migrate to starter Scout armor and a Common Item Power 1 Pulse Sidearm.
+Profile and stash writes use matching atomic generations and paired backups. A mismatch, corruption, or unsupported version loads the newest matching backup without overwriting settings. Schema-v1 profiles migrate to starter Scout armor and a Common Item Power 1 Pulse Sidearm; schema-v5 records migrate as Arena records.
 
 ## Render and motion captures
 

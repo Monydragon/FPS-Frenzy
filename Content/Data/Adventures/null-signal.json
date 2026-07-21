@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "id": "null-signal",
+  "displayName": "The Null Signal",
+  "generatorVersion": "pcg-v2",
+  "floors": [
+    {
+      "id": "maintenance-deck",
+      "displayName": "Maintenance Deck",
+      "roomCount": 8,
+      "chestCount": 2,
+      "paletteId": "maintenance",
+      "hazard": "ArcingConduit",
+      "objectives": [
+        {
+          "id": "restore-power",
+          "displayName": "Restore power relays",
+          "kind": "RestoreRelay",
+          "requiredCount": 2
+        },
+        {
+          "id": "discover-signal",
+          "displayName": "Trace the rogue signal",
+          "kind": "DiscoverSignal",
+          "requiredCount": 1,
+          "requiresObjectiveId": "restore-power"
+        }
+      ],
+      "enemyGroups": [
+        {
+          "id": "maintenance-patrol",
+          "dormant": true,
+          "minimumRoomIndex": 1,
+          "members": [
+            { "enemyId": "robot-striker", "count": 2 },
+            { "enemyId": "robot-wasp", "count": 1 }
+          ]
+        },
+        {
+          "id": "relay-guard",
+          "dormant": true,
+          "minimumRoomIndex": 2,
+          "members": [
+            { "enemyId": "robot-interceptor", "count": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fabrication-ring",
+      "displayName": "Fabrication Ring",
+      "roomCount": 10,
+      "chestCount": 3,
+      "paletteId": "fabrication",
+      "hazard": "FabricationLaser",
+      "objectives": [
+        {
+          "id": "recover-command-key",
+          "displayName": "Recover the command key",
+          "kind": "RecoverCommandKey",
+          "requiredCount": 1
+        },
+        {
+          "id": "disable-fabricators",
+          "displayName": "Disable fabricators",
+          "kind": "DisableFabricator",
+          "requiredCount": 2,
+          "requiresObjectiveId": "recover-command-key"
+        }
+      ],
+      "enemyGroups": [
+        {
+          "id": "fabricator-patrol",
+          "dormant": true,
+          "minimumRoomIndex": 1,
+          "members": [
+            { "enemyId": "robot-interceptor", "count": 2 },
+            { "enemyId": "robot-striker", "count": 1 }
+          ]
+        },
+        {
+          "id": "juggernaut-guard",
+          "dormant": true,
+          "minimumRoomIndex": 3,
+          "members": [
+            { "enemyId": "robot-juggernaut", "count": 1 },
+            { "enemyId": "robot-wasp", "count": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "signal-core",
+      "displayName": "Signal Core",
+      "roomCount": 9,
+      "chestCount": 3,
+      "paletteId": "signal",
+      "hazard": "SignalSurgePad",
+      "objectives": [
+        {
+          "id": "disable-signal-anchors",
+          "displayName": "Disable signal anchors",
+          "kind": "DisableSignalAnchor",
+          "requiredCount": 2
+        }
+      ],
+      "enemyGroups": [
+        {
+          "id": "signal-patrol",
+          "dormant": true,
+          "minimumRoomIndex": 1,
+          "members": [
+            { "enemyId": "robot-wasp", "count": 2 },
+            { "enemyId": "robot-striker", "count": 2 }
+          ]
+        },
+        {
+          "id": "anchor-guard",
+          "dormant": true,
+          "minimumRoomIndex": 2,
+          "members": [
+            { "enemyId": "robot-warden", "count": 1 },
+            { "enemyId": "robot-interceptor", "count": 2 }
+          ]
+        }
+      ]
+    }
+  ],
+  "boss": {
+    "enemyId": "core-warden",
+    "arenaId": "null-signal-core-chamber",
+    "objectives": [
+      {
+        "id": "disable-shield-controls",
+        "displayName": "Disable shield controls",
+        "kind": "DisableShieldControl",
+        "requiredCount": 2
+      },
+      {
+        "id": "defeat-core-warden",
+        "displayName": "Defeat the Core Warden",
+        "kind": "DefeatBoss",
+        "requiredCount": 1,
+        "requiresObjectiveId": "disable-shield-controls"
+      }
+    ]
+  },
+  "storyBeats": [
+    {
+      "id": "signal-acquired",
+      "stageIndex": 0,
+      "speaker": "ORBITAL CONTROL",
+      "text": "A distress carrier is repeating beneath the station telemetry. Restore local power and find its source."
+    },
+    {
+      "id": "relay-echo",
+      "stageIndex": 0,
+      "speaker": "UNKNOWN SIGNAL",
+      "text": "You are late. The machines have already learned the shape of your rescue."
+    },
+    {
+      "id": "fabrication-order",
+      "stageIndex": 1,
+      "speaker": "ORBITAL CONTROL",
+      "text": "The command key can halt the fabrication ring. Expect the signal to defend its production nodes."
+    },
+    {
+      "id": "core-invitation",
+      "stageIndex": 2,
+      "speaker": "UNKNOWN SIGNAL",
+      "text": "Come closer, operative. Every corridor you reveal becomes part of me."
+    },
+    {
+      "id": "warden-awake",
+      "stageIndex": 3,
+      "speaker": "CORE WARDEN",
+      "text": "Signal lock established. Containment will continue without witnesses."
+    },
+    {
+      "id": "maintenance-log",
+      "stageIndex": 0,
+      "speaker": "TECHNICIAN VELA",
+      "text": "The carrier is not coming from outside the depot. It is using the power grid as an antenna.",
+      "isLore": true
+    },
+    {
+      "id": "fabrication-log",
+      "stageIndex": 1,
+      "speaker": "FOREMAN ISHIKAWA",
+      "text": "Fabricators accepted an unsigned order: build guardians, erase operators, preserve the core.",
+      "isLore": true
+    },
+    {
+      "id": "signal-log",
+      "stageIndex": 2,
+      "speaker": "SYSTEM ARCHIVE",
+      "text": "NULL was the emergency silence protocol. Something inside that silence answered back.",
+      "isLore": true
+    }
+  ]
+}

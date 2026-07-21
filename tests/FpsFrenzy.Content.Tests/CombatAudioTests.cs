@@ -8,6 +8,10 @@ public sealed class CombatAudioTests
     [Fact]
     public void VictoryStingerMustPlayBeforeResultsMusicBegins()
     {
+        Assert.Equal("sector", CombatAudio.GetMusicAssetName(AudioMusicState.AdventureExplore));
+        Assert.Equal("pulse", CombatAudio.GetMusicAssetName(AudioMusicState.Combat));
+        Assert.Equal("airy", CombatAudio.GetMusicAssetName(AudioMusicState.Intermission));
+        Assert.Equal("urgent", CombatAudio.GetMusicAssetName(AudioMusicState.Boss));
         Assert.Equal("victory", CombatAudio.GetMusicAssetName(AudioMusicState.Victory));
         Assert.Equal("transmission", CombatAudio.GetMusicAssetName(AudioMusicState.Results));
 

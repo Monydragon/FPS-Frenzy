@@ -21,6 +21,8 @@ internal sealed class BepuPlayerController : IDisposable
     private readonly BufferPool _bufferPool = new();
     private readonly BepuSimulation _simulation;
     private readonly BodyHandle _bodyHandle;
+    private readonly Dictionary<string, StaticColliderRegistration> _staticColliders =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public BepuPlayerController(ArenaDefinition arena)
     {
@@ -43,7 +45,9 @@ internal sealed class BepuPlayerController : IDisposable
                 primitive.Size.Z));
             Vector3 radians = primitive.RotationDegrees * (MathF.PI / 180f);
             Quaternion orientation = Quaternion.CreateFromYawPitchRoll(radians.Y, radians.X, radians.Z);
-            _simulation.Statics.Add(new StaticDescription(primitive.Position, orientation, shape));
+            StaticDescription description = new(primitive.Position, orientation, shape);
+            StaticHandle handle = _simulation.Statics.Add(description);
+            _staticColliders[primitive.Id] = new StaticColliderRegistration(description, handle);
         }
 
         Capsule capsule = new(CapsuleRadius, CapsuleLength);
@@ -102,6 +106,30 @@ internal sealed class BepuPlayerController : IDisposable
         body.Velocity.Angular = Vector3.Zero;
         body.Awake = true;
     }
+
+    public bool SetStaticColliderEnabled(string id, bool enabled)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (!_staticColliders.TryGetValue(id, out StaticColliderRegistration? registration) ||
+            registration.Enabled == enabled)
+        {
+            return false;
+        }
+
+        if (enabled)
+        {
+            registration.Handle = _simulation.Statics.Add(registration.Description);
+        }
+        else
+        {
+            _simulation.Statics.Remove(registration.Handle);
+        }
+        registration.Enabled = enabled;
+        return true;
+    }
+
+    internal bool IsStaticColliderEnabled(string id) =>
+        _staticColliders.TryGetValue(id, out StaticColliderRegistration? registration) && registration.Enabled;
 
     public void Dispose()
     {
@@ -206,6 +234,13 @@ internal sealed class BepuPlayerController : IDisposable
             Hit = true;
             maximumT = t;
         }
+    }
+
+    private sealed class StaticColliderRegistration(StaticDescription description, StaticHandle handle)
+    {
+        public StaticDescription Description { get; } = description;
+        public StaticHandle Handle { get; set; } = handle;
+        public bool Enabled { get; set; } = true;
     }
 }
 

@@ -21,6 +21,42 @@ public sealed class ProfileStoreTests
     }
 
     [Fact]
+    public void FreshProfileStartsWithOnlyThePulseSidearmPistolEquipped()
+    {
+        ProfileData profile = ProfileData.CreateDefault();
+
+        Assert.Equal("pulse-sidearm", profile.SelectedStartingWeaponId);
+        Assert.Equal("pulse-sidearm", profile.StarterWeaponQuickbar[0].RightHand?.WeaponBaseId);
+        Assert.Null(profile.StarterWeaponQuickbar[0].LeftHand);
+        Assert.All(profile.StarterWeaponQuickbar.Slots.Skip(1), slot => Assert.True(slot.IsEmpty));
+    }
+
+    [Fact]
+    public void LegacyDefaultThreeWeaponLoadoutNormalizesToThePistolStart()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "profile.json");
+        ProfileStore store = new(path);
+        ProfileData profile = ProfileData.CreateDefault();
+        profile.StarterWeaponSetA = new WeaponSetLoadout
+        {
+            RightHand = StarterWeaponReference.Issue("pulse-sidearm"),
+            LeftHand = StarterWeaponReference.Issue("ion-sprayer"),
+        };
+        profile.StarterWeaponSetB = new WeaponSetLoadout
+        {
+            RightHand = StarterWeaponReference.Issue("longshot-rifle"),
+        };
+        profile.StarterWeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(
+            profile.StarterWeaponSetA, profile.StarterWeaponSetB);
+        Assert.True(store.Save(profile));
+
+        ProfileData loaded = store.Load();
+
+        Assert.Equal("pulse-sidearm", loaded.StarterWeaponQuickbar[0].RightHand?.WeaponBaseId);
+        Assert.All(loaded.StarterWeaponQuickbar.Slots.Skip(1), slot => Assert.True(slot.IsEmpty));
+    }
+
+    [Fact]
     public void MismatchedPrimaryGenerationRecoversNewestMatchingBackup()
     {
         string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -107,6 +143,46 @@ public sealed class ProfileStoreTests
 
         Assert.Equal(ProfileData.CurrentSchemaVersion, migrated.SchemaVersion);
         Assert.Equal(profile.Stash.Select(item => item.Id), migrated.Stash.Select(item => item.Id));
+    }
+
+    [Fact]
+    public void VersionFiveRecordsMigrateToArenaAndAdventureFieldsStartEmpty()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "profile.json");
+        ProfileStore store = new(path);
+        ProfileData profile = ProfileData.CreateDefault();
+        profile.BestUnassistedRun = new RunRecord
+        {
+            Mode = GameMode.Adventure,
+            CompletedAtUtc = DateTimeOffset.UnixEpoch,
+            Seed = 42,
+            Victory = true,
+            GodModeUsed = false,
+            Score = 900,
+            Kills = 8,
+            SectorsCompleted = 2,
+            ElapsedSeconds = 300f,
+            DamageTaken = 25f,
+        };
+        profile.MostRecentRun = profile.BestUnassistedRun;
+        Assert.True(store.Save(profile));
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            $"\"SchemaVersion\": {ProfileData.CurrentSchemaVersion}", "\"SchemaVersion\": 5",
+            StringComparison.Ordinal));
+        File.WriteAllText(path + ".stash", File.ReadAllText(path + ".stash").Replace(
+            $"\"SchemaVersion\": {ProfileData.CurrentSchemaVersion}", "\"SchemaVersion\": 5",
+            StringComparison.Ordinal));
+
+        ProfileData migrated = store.Load();
+
+        Assert.Equal(ProfileData.CurrentSchemaVersion, migrated.SchemaVersion);
+        Assert.Equal(GameMode.Arena, migrated.BestUnassistedRun?.Mode);
+        Assert.Equal(GameMode.Arena, migrated.MostRecentRun?.Mode);
+        Assert.Null(migrated.BestUnassistedAdventureRun);
+        Assert.Null(migrated.MostRecentAdventureRun);
+        Assert.Empty(migrated.DiscoveredLoreIds);
+        Assert.False(migrated.NullSignalCompleted);
     }
 
     [Fact]

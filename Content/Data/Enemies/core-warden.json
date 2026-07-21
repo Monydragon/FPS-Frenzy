@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 2,
+  "id": "core-warden",
+  "displayName": "Core Warden",
+  "modelAsset": "Models/Enemies/Robots/Enemy_Trilobite",
+  "behavior": "Boss",
+  "isBoss": true,
+  "animationClips": {
+    "idle": "Idle",
+    "walk": "Walk",
+    "attack": "Attack",
+    "hit": "Hit",
+    "death": "TurnOff"
+  },
+  "visual": {
+    "targetHeight": 4.8,
+    "groundOffset": -0.7,
+    "corpseLifetimeSeconds": 5.0,
+    "albedoAsset": "Models/Enemies/Robots/Textures/T_Enemies_Large_BaseColor",
+    "emissiveAsset": "Models/Enemies/Robots/Textures/T_Enemies_Large_Emissive",
+    "emissiveAccent": { "x": 0.15, "y": 0.95, "z": 1.0 },
+    "healthBarAnchor": { "x": 0.0, "y": 5.2, "z": 0.0 },
+    "textureSampling": "LinearMipmapped",
+    "animationBindings": {
+      "idle": { "clipName": "Idle", "loopMode": "Loop" },
+      "locomotion": { "clipName": "Walk", "loopMode": "Loop" },
+      "windup": { "clipName": "Attack", "loopMode": "PlayOnceHold", "playbackRate": 0.95, "startNormalized": 0.0, "endNormalized": 0.62 },
+      "activeAttack": { "clipName": "Attack", "loopMode": "PlayOnceHold", "playbackRate": 0.95, "startNormalized": 0.62, "endNormalized": 0.74 },
+      "recovery": { "clipName": "Attack", "loopMode": "PlayOnceHold", "playbackRate": 0.95, "startNormalized": 0.74, "endNormalized": 1.0 },
+      "hitReaction": { "clipName": "Hit", "loopMode": "PlayOnce" },
+      "death": { "clipName": "TurnOff", "loopMode": "PlayOnceHold" }
+    }
+  },
+  "weakPoints": [
+    { "id": "null-core", "offset": { "x": 0.0, "y": 3.7, "z": 0.0 }, "radius": 0.55 }
+  ],
+  "maxHealth": 10500.0,
+  "moveSpeed": 2.8,
+  "colliderRadius": 1.55,
+  "colliderHeight": 4.8,
+  "attackRange": 2.7,
+  "attackDamage": 24.0,
+  "attackCooldownSeconds": 1.8,
+  "attackWindupSeconds": 0.8,
+  "attackRecoverySeconds": 0.38,
+  "staggerableDuringWindup": false,
+  "threatWeight": 8.5,
+  "preferredRange": 11.0,
+  "rangedAttackRange": 28.0,
+  "projectileSpeed": 17.0,
+  "projectileRadius": 0.4,
+  "projectileSplashRadius": 2.6,
+  "strafeSpeed": 3.2,
+  "chargeSpeed": 12.5,
+  "chargeRange": 15.0,
+  "chargeWindupSeconds": 1.0,
+  "chargeDurationSeconds": 0.88,
+  "chargeCooldownSeconds": 5.2,
+  "tint": { "x": 0.16, "y": 0.88, "z": 1.0 },
+  "bossPhases": [
+    {
+      "id": "signal-lock",
+      "displayName": "SIGNAL LOCK",
+      "healthThreshold": 1.0,
+      "moveSpeedMultiplier": 1.0,
+      "attackCooldownMultiplier": 1.0,
+      "damageMultiplier": 1.0,
+      "projectileSpeedMultiplier": 1.0,
+      "tint": { "x": 0.12, "y": 0.92, "z": 1.0 }
+    },
+    {
+      "id": "fabricator-override",
+      "displayName": "FABRICATOR OVERRIDE",
+      "healthThreshold": 0.66,
+      "moveSpeedMultiplier": 1.15,
+      "attackCooldownMultiplier": 0.8,
+      "damageMultiplier": 1.1,
+      "projectileSpeedMultiplier": 1.16,
+      "tint": { "x": 1.0, "y": 0.58, "z": 0.18 },
+      "summonEnemyId": "robot-interceptor",
+      "summonCount": 3
+    },
+    {
+      "id": "null-cascade",
+      "displayName": "NULL CASCADE",
+      "healthThreshold": 0.33,
+      "moveSpeedMultiplier": 1.3,
+      "attackCooldownMultiplier": 0.62,
+      "damageMultiplier": 1.2,
+      "projectileSpeedMultiplier": 1.32,
+      "tint": { "x": 1.0, "y": 0.16, "z": 0.34 },
+      "summonEnemyId": "robot-wasp",
+      "summonCount": 4
+    }
+  ],
+  "scoreValue": 8000,
+  "pathRefreshSeconds": 0.25,
+  "healthDropChance": 0.0,
+  "ammoDropChance": 0.0
+}

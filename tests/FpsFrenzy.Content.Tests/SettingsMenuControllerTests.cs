@@ -52,6 +52,28 @@ public sealed class SettingsMenuControllerTests
         Assert.Equal(settingsIndex, layout.HitTest(settingsRow));
     }
 
+    [Theory]
+    [InlineData(1280, 720, false)]
+    [InlineData(1280, 720, true)]
+    [InlineData(2400, 1080, false)]
+    [InlineData(1920, 864, false)]
+    public void MainMenuCardsRemainSpacedInsideTheSafeArea(int width, int height, bool largeText)
+    {
+        Rectangle safeArea = new(0, 0, width, height);
+        MenuRowWindow window = MenuLayout.GetRowWindow(
+            safeArea, SettingsMenuController.MainRows.Length, largeText, MenuPage.Main, selectedIndex: 0);
+        MenuLayoutMetrics layout = MenuLayout.Create(safeArea, window.Count, largeText, MenuPage.Main);
+
+        Assert.Equal(SettingsMenuController.MainRows.Length, window.Count);
+        Assert.True(safeArea.Contains(layout.Panel));
+        Assert.True(layout.Panel.Bottom <= safeArea.Bottom - 70);
+        Assert.True(layout.RowHeight >= 48);
+        for (int index = 1; index < layout.RowCount; index++)
+        {
+            Assert.Equal(layout.GetRowBounds(index - 1).Bottom, layout.GetRowBounds(index).Top);
+        }
+    }
+
     [Fact]
     public void WeaponPickupMenuSupportsControllerResolutionAndBackLeavesTheDrop()
     {
@@ -96,7 +118,12 @@ public sealed class SettingsMenuControllerTests
     {
         SettingsMenuController menu = new();
         menu.OpenMain();
-        int labIndex = Array.IndexOf(SettingsMenuController.MainRows, "DEBUG LAB");
+        menu.Update(
+            new GameSettings(),
+            new MenuInputSnapshot(MenuInputButtons.Accept),
+            SafeArea);
+        Assert.Equal(MenuPage.Play, menu.Page);
+        int labIndex = menu.GetRows().ToList().IndexOf("DEBUG LAB");
         Assert.True(labIndex >= 0);
         PressDown(menu, labIndex);
 
@@ -107,6 +134,84 @@ public sealed class SettingsMenuControllerTests
 
         Assert.Equal(MenuAction.StartDebugLab, action);
         Assert.Equal(MenuPage.None, menu.Page);
+    }
+
+    [Fact]
+    public void StartingNewArenaWithCheckpointRequiresExplicitConfirmation()
+    {
+        SettingsMenuController menu = new();
+        menu.ConfigureProfile(ProfileData.CreateDefault(), [], hasCheckpoint: true);
+        menu.OpenMain();
+        GameSettings settings = new();
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+        menu.Update(settings, default, SafeArea);
+        int newArenaIndex = menu.GetRows().ToList().IndexOf("NEW ARENA");
+        PressDown(menu, newArenaIndex);
+
+        Assert.Equal(MenuAction.None, menu.Update(
+            settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea));
+        Assert.Equal(MenuPage.ConfirmNewRun, menu.Page);
+        Assert.Equal(1, menu.SelectedIndex);
+
+        menu.Update(settings, default, SafeArea);
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Up), SafeArea);
+        menu.Update(settings, default, SafeArea);
+        MenuCommand command = menu.UpdateCommand(
+            settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+
+        Assert.Equal(MenuAction.StartRun, command.Type);
+        Assert.Equal(GameMode.Arena, command.Mode);
+        Assert.Null(command.Seed);
+    }
+
+    [Fact]
+    public void AdventureSeedSupportsDirectTypingKeypadBoundsAndTypedCommand()
+    {
+        SettingsMenuController menu = new();
+        GameSettings settings = new();
+        menu.OpenAdventureSetup(999_999_999);
+
+        foreach (int digit in new[] { 2, 1, 4, 7, 4, 8, 3, 6, 4, 7 })
+        {
+            menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.None, Digit: digit), SafeArea);
+            menu.Update(settings, default, SafeArea);
+        }
+
+        Assert.Equal(int.MaxValue, menu.AdventureSeed);
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.None, Digit: 8), SafeArea);
+        Assert.Equal(int.MaxValue, menu.AdventureSeed);
+
+        menu.Update(settings, default, SafeArea);
+        PressDown(menu, 1);
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+        Assert.Equal(MenuPage.SeedKeypad, menu.Page);
+        menu.Update(settings, default, SafeArea);
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+        Assert.Equal(1, menu.AdventureSeed);
+
+        menu.OpenAdventureSetup(77);
+        PressDown(menu, 3);
+        MenuCommand command = menu.UpdateCommand(
+            settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+
+        Assert.Equal(MenuAction.StartRun, command.Type);
+        Assert.Equal(GameMode.Adventure, command.Mode);
+        Assert.Equal(77, command.Seed);
+    }
+
+    [Fact]
+    public void StartingNewAdventureWithCheckpointRequiresExplicitConfirmation()
+    {
+        SettingsMenuController menu = new();
+        menu.ConfigureProfile(ProfileData.CreateDefault(), [], hasAdventureCheckpoint: true);
+        menu.OpenAdventureSetup(4_242);
+        GameSettings settings = new();
+        PressDown(menu, 3);
+
+        Assert.Equal(MenuAction.None, menu.Update(
+            settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea));
+        Assert.Equal(MenuPage.ConfirmNewRun, menu.Page);
+        Assert.Equal(1, menu.SelectedIndex);
     }
 
     [Fact]
@@ -134,8 +239,8 @@ public sealed class SettingsMenuControllerTests
             pointer with { Buttons = MenuInputButtons.Accept },
             SafeArea);
 
-        Assert.Equal(MenuAction.None, action);
-        Assert.Equal(MenuPage.Accessibility, menu.Page);
+        Assert.Equal(MenuAction.Quit, action);
+        Assert.Equal(MenuPage.Main, menu.Page);
     }
 
     [Fact]
@@ -191,9 +296,17 @@ public sealed class SettingsMenuControllerTests
         GameSettings settings = new();
         SettingsMenuController menu = new();
         menu.OpenSettings(MenuPage.Main);
+        for (int index = 0; index < 7; index++)
+        {
+            menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Down), SafeArea);
+            menu.Update(settings, default, SafeArea);
+        }
+        MenuRowWindow window = MenuLayout.GetRowWindow(
+            SafeArea, SettingsMenuController.SettingsRows.Length, largeText: false,
+            MenuPage.Settings, menu.SelectedIndex);
         MenuLayoutMetrics layout = MenuLayout.Create(
-            SafeArea, SettingsMenuController.SettingsRows.Length, largeText: false, MenuPage.Settings);
-        Point godModeRow = layout.GetRowBounds(7).Center;
+            SafeArea, window.Count, largeText: false, MenuPage.Settings);
+        Point godModeRow = layout.GetRowBounds(7 - window.Start).Center;
 
         MenuAction action = menu.Update(
             settings,
@@ -202,6 +315,66 @@ public sealed class SettingsMenuControllerTests
 
         Assert.Equal(MenuAction.SettingsChanged, action);
         Assert.True(settings.GodMode);
+    }
+
+    [Fact]
+    public void ControllerBindingsPageCapturesButtonsAndSwapsConflicts()
+    {
+        GameSettings settings = new();
+        SettingsMenuController menu = new();
+        menu.OpenControls(MenuPage.Main);
+
+        menu.Update(settings, new MenuInputSnapshot(
+            MenuInputButtons.Accept, HeldGamepadButton: GamepadBindingButton.A), SafeArea);
+        Assert.Equal(GamepadBindingAction.Jump, menu.BindingCaptureAction);
+        menu.Update(settings, default, SafeArea);
+        MenuAction action = menu.Update(settings,
+            new MenuInputSnapshot(MenuInputButtons.None, HeldGamepadButton: GamepadBindingButton.X), SafeArea);
+
+        Assert.Equal(MenuAction.SettingsChanged, action);
+        Assert.Null(menu.BindingCaptureAction);
+        Assert.Equal(GamepadBindingButton.X, settings.ControllerBindings.Jump);
+        Assert.Equal(GamepadBindingButton.A, settings.ControllerBindings.Interact);
+    }
+
+    [Fact]
+    public void SettingsMenuNavigatesToControllerBindingsThroughTheScrolledRows()
+    {
+        GameSettings settings = new();
+        SettingsMenuController menu = new();
+        menu.OpenSettings(MenuPage.Main);
+        for (int index = 0; index < 8; index++)
+        {
+            menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Down), SafeArea);
+            menu.Update(settings, default, SafeArea);
+        }
+
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+
+        Assert.Equal(MenuPage.Controls, menu.Page);
+        Assert.Equal(0, menu.SelectedIndex);
+        Assert.Equal(10, menu.GetRows().Count);
+    }
+
+    [Fact]
+    public void CrowdedSettingsUseAViewportWithWheelAndClickableScrollControls()
+    {
+        GameSettings settings = new();
+        SettingsMenuController menu = new();
+        menu.OpenSettings(MenuPage.Main);
+        MenuRowWindow window = MenuLayout.GetRowWindow(
+            SafeArea, menu.GetRows().Count, largeText: false, MenuPage.Settings, selectedIndex: 0);
+        MenuLayoutMetrics layout = MenuLayout.Create(SafeArea, window.Count, largeText: false, MenuPage.Settings);
+
+        Assert.Equal(7, window.Count);
+        Assert.True(layout.Panel.Bottom <= SafeArea.Bottom - 70);
+
+        menu.Update(settings, new MenuInputSnapshot(MenuInputButtons.None, ScrollDirection: 1), SafeArea);
+        Assert.Equal(1, menu.SelectedIndex);
+        menu.Update(settings, default, SafeArea);
+        menu.Update(settings, new MenuInputSnapshot(
+            MenuInputButtons.None, true, MenuLayout.GetScrollDownBounds(layout).Center, true), SafeArea);
+        Assert.Equal(2, menu.SelectedIndex);
     }
 
     [Fact]
@@ -518,6 +691,43 @@ public sealed class SettingsMenuControllerTests
 
         Assert.False(pauseButton.Intersects(objectiveBlock));
         Assert.True(SafeArea.Contains(pauseButton));
+    }
+
+    [Fact]
+    public void DenseProfilePagesScrollInsideThePanelWithoutCoveringHelp()
+    {
+        MenuRowWindow first = MenuLayout.GetRowWindow(
+            SafeArea, 30, largeText: false, MenuPage.Loadout, selectedIndex: 0);
+        MenuRowWindow last = MenuLayout.GetRowWindow(
+            SafeArea, 30, largeText: false, MenuPage.Loadout, selectedIndex: 29);
+        MenuLayoutMetrics layout = MenuLayout.Create(
+            SafeArea, last.Count, largeText: false, MenuPage.Loadout);
+
+        Assert.True(first.Count < 30);
+        Assert.Equal(0, first.Start);
+        Assert.True(last.Start > 0);
+        Assert.Equal(30, last.Start + last.Count);
+        Assert.True(layout.Panel.Bottom <= SafeArea.Bottom - 70);
+        Assert.True(layout.Panel.Top > MenuLayout.GetProfileTabBounds(SafeArea, 0).Bottom);
+
+        MenuRowWindow pauseWindow = MenuLayout.GetRowWindow(
+            SafeArea, SettingsMenuController.PauseRows.Length, largeText: false, MenuPage.Pause, selectedIndex: 0);
+        MenuLayoutMetrics pauseLayout = MenuLayout.Create(
+            SafeArea, pauseWindow.Count, largeText: false, MenuPage.Pause);
+        int expandedMapLeft = SafeArea.Right - Math.Min(340, SafeArea.Width / 3) - 22;
+        Assert.True(pauseWindow.Count < SettingsMenuController.PauseRows.Length);
+        Assert.True(pauseLayout.Panel.Right <= expandedMapLeft);
+        Assert.True(pauseLayout.Panel.Bottom <= SafeArea.Bottom - 70);
+    }
+
+    [Fact]
+    public void AdventurePauseOffersAStageRestartInsteadOfStartingOver()
+    {
+        SettingsMenuController menu = new();
+        menu.SetActiveMode(GameMode.Adventure);
+        menu.OpenPause();
+
+        Assert.Equal("RESTART CURRENT STAGE", menu.GetRows()[10]);
     }
 
     private static ContentCatalog LoadCatalog() => ContentCatalog.LoadFromDirectory(

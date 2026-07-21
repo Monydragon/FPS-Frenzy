@@ -10,6 +10,146 @@ public enum ColorVisionMode
     Tritanopia,
 }
 
+public enum GamepadBindingButton
+{
+    A,
+    B,
+    X,
+    Y,
+    LeftShoulder,
+    RightShoulder,
+    LeftStick,
+    RightStick,
+    DPadUp,
+    DPadDown,
+    DPadLeft,
+    DPadRight,
+}
+
+public enum GamepadBindingAction
+{
+    Jump,
+    Interact,
+    Reload,
+    Ability1,
+    Ability2,
+    Focus,
+    WeaponNext,
+    WeaponPrevious,
+}
+
+public sealed record GamepadControlBindings
+{
+    public GamepadBindingButton Jump { get; set; } = GamepadBindingButton.A;
+    public GamepadBindingButton Interact { get; set; } = GamepadBindingButton.X;
+    public GamepadBindingButton Reload { get; set; } = GamepadBindingButton.DPadDown;
+    public GamepadBindingButton Ability1 { get; set; } = GamepadBindingButton.LeftShoulder;
+    public GamepadBindingButton Ability2 { get; set; } = GamepadBindingButton.RightShoulder;
+    public GamepadBindingButton Focus { get; set; } = GamepadBindingButton.RightStick;
+    public GamepadBindingButton WeaponNext { get; set; } = GamepadBindingButton.Y;
+    public GamepadBindingButton WeaponPrevious { get; set; } = GamepadBindingButton.B;
+
+    public GamepadBindingButton this[GamepadBindingAction action]
+    {
+        get => action switch
+        {
+            GamepadBindingAction.Jump => Jump,
+            GamepadBindingAction.Interact => Interact,
+            GamepadBindingAction.Reload => Reload,
+            GamepadBindingAction.Ability1 => Ability1,
+            GamepadBindingAction.Ability2 => Ability2,
+            GamepadBindingAction.Focus => Focus,
+            GamepadBindingAction.WeaponNext => WeaponNext,
+            GamepadBindingAction.WeaponPrevious => WeaponPrevious,
+            _ => throw new ArgumentOutOfRangeException(nameof(action)),
+        };
+        set
+        {
+            switch (action)
+            {
+                case GamepadBindingAction.Jump: Jump = value; break;
+                case GamepadBindingAction.Interact: Interact = value; break;
+                case GamepadBindingAction.Reload: Reload = value; break;
+                case GamepadBindingAction.Ability1: Ability1 = value; break;
+                case GamepadBindingAction.Ability2: Ability2 = value; break;
+                case GamepadBindingAction.Focus: Focus = value; break;
+                case GamepadBindingAction.WeaponNext: WeaponNext = value; break;
+                case GamepadBindingAction.WeaponPrevious: WeaponPrevious = value; break;
+                default: throw new ArgumentOutOfRangeException(nameof(action));
+            }
+        }
+    }
+
+    public void AssignWithSwap(GamepadBindingAction action, GamepadBindingButton button)
+    {
+        GamepadBindingButton previous = this[action];
+        GamepadBindingAction? occupied = GamepadBindingCatalog.Actions
+            .Cast<GamepadBindingAction?>()
+            .FirstOrDefault(candidate => candidate != action && this[candidate!.Value] == button);
+        this[action] = button;
+        if (occupied is { } swappedAction)
+        {
+            this[swappedAction] = previous;
+        }
+    }
+
+    public void Reset()
+    {
+        GamepadControlBindings defaults = new();
+        foreach (GamepadBindingAction action in GamepadBindingCatalog.Actions)
+        {
+            this[action] = defaults[action];
+        }
+    }
+
+    public void EnsureValid()
+    {
+        GamepadBindingButton[] assigned = GamepadBindingCatalog.Actions.Select(action => this[action]).ToArray();
+        if (assigned.Any(button => !Enum.IsDefined(button)) || assigned.Distinct().Count() != assigned.Length)
+        {
+            Reset();
+        }
+    }
+}
+
+public static class GamepadBindingCatalog
+{
+    public static IReadOnlyList<GamepadBindingAction> Actions { get; } =
+        Enum.GetValues<GamepadBindingAction>();
+    public static IReadOnlyList<GamepadBindingButton> Buttons { get; } =
+        Enum.GetValues<GamepadBindingButton>();
+
+    public static string ActionLabel(GamepadBindingAction action) => action switch
+    {
+        GamepadBindingAction.Jump => "JUMP",
+        GamepadBindingAction.Interact => "ACTIVATE / USE",
+        GamepadBindingAction.Reload => "RELOAD",
+        GamepadBindingAction.Ability1 => "ABILITY 1",
+        GamepadBindingAction.Ability2 => "ABILITY 2",
+        GamepadBindingAction.Focus => "ADS / FOCUS",
+        GamepadBindingAction.WeaponNext => "NEXT WEAPON",
+        GamepadBindingAction.WeaponPrevious => "PREVIOUS WEAPON",
+        _ => action.ToString().ToUpperInvariant(),
+    };
+
+    public static string ButtonLabel(GamepadBindingButton button) => button switch
+    {
+        GamepadBindingButton.A => "A / PS CROSS",
+        GamepadBindingButton.B => "B / PS CIRCLE",
+        GamepadBindingButton.X => "X / PS SQUARE",
+        GamepadBindingButton.Y => "Y / PS TRIANGLE",
+        GamepadBindingButton.LeftShoulder => "LB / L1",
+        GamepadBindingButton.RightShoulder => "RB / R1",
+        GamepadBindingButton.LeftStick => "LS / L3",
+        GamepadBindingButton.RightStick => "RS / R3",
+        GamepadBindingButton.DPadUp => "DPAD UP",
+        GamepadBindingButton.DPadDown => "DPAD DOWN",
+        GamepadBindingButton.DPadLeft => "DPAD LEFT",
+        GamepadBindingButton.DPadRight => "DPAD RIGHT",
+        _ => button.ToString().ToUpperInvariant(),
+    };
+}
+
 public sealed record GameSettings
 {
     public float MasterVolume { get; set; } = 0.85f;
@@ -22,12 +162,14 @@ public sealed record GameSettings
     public float ScreenShakeScale { get; set; } = 1f;
     public float CameraBobScale { get; set; } = 1f;
     public bool ReducedFlash { get; set; }
+    public bool ReducedUiMotion { get; set; }
     public bool HighContrastReticle { get; set; }
     public bool LargeHudText { get; set; }
     public bool Subtitles { get; set; } = true;
     public bool ToggleAimDownSights { get; set; }
     public bool GodMode { get; set; }
     public ColorVisionMode ColorVisionMode { get; set; }
+    public GamepadControlBindings ControllerBindings { get; set; } = new();
 
     public void Clamp()
     {
@@ -40,6 +182,8 @@ public sealed record GameSettings
         RenderFrameRate = RenderFrameRate == 30 ? 30 : 60;
         ScreenShakeScale = Math.Clamp(ScreenShakeScale, 0f, 1f);
         CameraBobScale = Math.Clamp(CameraBobScale, 0f, 1f);
+        ControllerBindings ??= new GamepadControlBindings();
+        ControllerBindings.EnsureValid();
     }
 }
 

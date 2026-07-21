@@ -12,6 +12,7 @@ public enum AudioMusicState
     None,
     Menu,
     Intermission,
+    AdventureExplore,
     Combat,
     Boss,
     Victory,
@@ -57,6 +58,9 @@ public sealed class CombatAudio : IDisposable
     private bool _available;
     private bool _disposed;
     private AudioMusicState _musicState;
+    private AudioMusicState _requestedMusicState;
+    private MusicTransitionPhase _musicTransitionPhase;
+    private float _musicTransitionSeconds;
     private bool _victoryStingerActive;
     private bool _victoryStingerObservedPlaying;
 
@@ -72,6 +76,7 @@ public sealed class CombatAudio : IDisposable
 
             _music.Add(AudioMusicState.Menu, LoadMusic(content, AudioMusicState.Menu));
             _music.Add(AudioMusicState.Intermission, LoadMusic(content, AudioMusicState.Intermission));
+            _music.Add(AudioMusicState.AdventureExplore, LoadMusic(content, AudioMusicState.AdventureExplore));
             _music.Add(AudioMusicState.Combat, LoadMusic(content, AudioMusicState.Combat));
             _music.Add(AudioMusicState.Boss, LoadMusic(content, AudioMusicState.Boss));
             _music.Add(AudioMusicState.Victory, LoadMusic(content, AudioMusicState.Victory));
@@ -213,36 +218,27 @@ public sealed class CombatAudio : IDisposable
 
     public void SetMusicState(AudioMusicState state, GameSettings settings)
     {
-        ApplySettings(settings);
-        if (!_available || state == _musicState)
+        ApplySettings(settings, MusicVolumeScale());
+        if (!_available || state == _requestedMusicState)
         {
             return;
         }
 
-        _musicState = state;
+        _requestedMusicState = state;
         _victoryStingerActive = false;
         _victoryStingerObservedPlaying = false;
-        if (state == AudioMusicState.None || !_music.TryGetValue(state, out Song? song))
+        if (_musicState == AudioMusicState.None)
         {
-            MediaPlayer.Stop();
+            StartRequestedMusic();
             return;
         }
-
-        try
-        {
-            MediaPlayer.IsRepeating = state != AudioMusicState.Victory;
-            MediaPlayer.Play(song);
-            _victoryStingerActive = state == AudioMusicState.Victory;
-        }
-        catch (InvalidOperationException)
-        {
-            // Media playback is optional on headless test/capture machines.
-        }
+        _musicTransitionPhase = MusicTransitionPhase.FadingOut;
+        _musicTransitionSeconds = 0f;
     }
 
     public void Update(float deltaSeconds, GameSettings settings)
     {
-        ApplySettings(settings);
+        UpdateMusicTransition(deltaSeconds, settings);
         TryAdvanceVictorySequence();
         for (int index = _spatialVoices.Count - 1; index >= 0; index--)
         {
@@ -276,6 +272,7 @@ public sealed class CombatAudio : IDisposable
     {
         AudioMusicState.Menu => "title",
         AudioMusicState.Intermission => "airy",
+        AudioMusicState.AdventureExplore => "sector",
         AudioMusicState.Combat => "pulse",
         AudioMusicState.Boss => "urgent",
         AudioMusicState.Victory => "victory",
@@ -428,10 +425,68 @@ public sealed class CombatAudio : IDisposable
         }
     }
 
-    private static void ApplySettings(GameSettings settings)
+    private static void ApplySettings(GameSettings settings, float musicVolumeScale = 1f)
     {
         SoundEffect.MasterVolume = settings.MasterVolume;
-        MediaPlayer.Volume = Math.Clamp(settings.MasterVolume * settings.MusicVolume, 0f, 1f);
+        MediaPlayer.Volume = Math.Clamp(
+            settings.MasterVolume * settings.MusicVolume * musicVolumeScale, 0f, 1f);
+    }
+
+    private void UpdateMusicTransition(float deltaSeconds, GameSettings settings)
+    {
+        _musicTransitionSeconds += MathF.Max(0f, deltaSeconds);
+        if (_musicTransitionPhase == MusicTransitionPhase.FadingOut && _musicTransitionSeconds >= 0.35f)
+        {
+            StartRequestedMusic();
+        }
+        else if (_musicTransitionPhase == MusicTransitionPhase.FadingIn && _musicTransitionSeconds >= 0.45f)
+        {
+            _musicTransitionPhase = MusicTransitionPhase.None;
+            _musicTransitionSeconds = 0f;
+        }
+        ApplySettings(settings, MusicVolumeScale());
+    }
+
+    private float MusicVolumeScale() => _musicTransitionPhase switch
+    {
+        MusicTransitionPhase.FadingOut => 1f - Math.Clamp(_musicTransitionSeconds / 0.35f, 0f, 1f),
+        MusicTransitionPhase.FadingIn => Math.Clamp(_musicTransitionSeconds / 0.45f, 0f, 1f),
+        _ => 1f,
+    };
+
+    private void StartRequestedMusic()
+    {
+        try
+        {
+            if (_requestedMusicState == AudioMusicState.None ||
+                !_music.TryGetValue(_requestedMusicState, out Song? song))
+            {
+                MediaPlayer.Stop();
+                _musicState = AudioMusicState.None;
+                _musicTransitionPhase = MusicTransitionPhase.None;
+                _musicTransitionSeconds = 0f;
+                return;
+            }
+
+            _musicState = _requestedMusicState;
+            MediaPlayer.IsRepeating = _musicState != AudioMusicState.Victory;
+            MediaPlayer.Play(song);
+            _victoryStingerActive = _musicState == AudioMusicState.Victory;
+            _musicTransitionPhase = MusicTransitionPhase.FadingIn;
+            _musicTransitionSeconds = 0f;
+        }
+        catch (InvalidOperationException)
+        {
+            _musicTransitionPhase = MusicTransitionPhase.None;
+            _musicTransitionSeconds = 0f;
+        }
+    }
+
+    private enum MusicTransitionPhase
+    {
+        None,
+        FadingOut,
+        FadingIn,
     }
 
     private static Song LoadMusic(ContentManager content, AudioMusicState state) =>

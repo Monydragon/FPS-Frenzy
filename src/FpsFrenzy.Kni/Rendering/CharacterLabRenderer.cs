@@ -11,17 +11,21 @@ public sealed class CharacterLabRenderer : IDisposable
     private readonly GraphicsDevice _graphicsDevice;
     private readonly SpriteBatch _spriteBatch;
     private readonly Texture2D _pixel;
-    private readonly PixelFont _font;
+    private readonly OxaniumFont _font;
     private bool _disposed;
 
-    public CharacterLabRenderer(GraphicsDevice graphicsDevice)
+    public CharacterLabRenderer(
+        GraphicsDevice graphicsDevice,
+        SpriteFont hudFont,
+        SpriteFont bodyFont,
+        SpriteFont headingFont)
     {
         ArgumentNullException.ThrowIfNull(graphicsDevice);
         _graphicsDevice = graphicsDevice;
         _spriteBatch = new SpriteBatch(graphicsDevice);
         _pixel = new Texture2D(graphicsDevice, 1, 1, false, SurfaceFormat.Color);
         _pixel.SetData([Color.White]);
-        _font = new PixelFont(_pixel);
+        _font = new OxaniumFont(hudFont, bodyFont, headingFont);
     }
 
     public void Draw(

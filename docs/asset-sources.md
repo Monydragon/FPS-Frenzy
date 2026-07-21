@@ -129,6 +129,14 @@ Binary source art is tracked by Git LFS. Only files selected for the release ros
 - Local root: `Content/Textures/UI`
 - Modification: renamed to `menu-emblem.png`, `menu-button.png`, and `menu-button-selected.png`; runtime tinting ties the interface to the arena sector palette.
 
+## FPS Frenzy title-menu key art
+
+- Source: OpenAI built-in image generation, generated 2026-07-21 for this project without source-image inputs
+- Local file: `Content/Textures/UI/title-menu-background.png`
+- Use: text-free title-menu background; the localized Oxanium title and interactive menu remain runtime-rendered UI
+- Prompt direction: a wide industrial orbital depot and mysterious null-signal core, viewed behind an original robot operative with a lowered pulse pistol; dark crop-safe title space; restrained cyan, amber, and coral lighting; no text, logos, UI, or watermark
+- Modification: imported unchanged; the renderer aspect-crops it to the platform safe area and applies a dark readability veil
+
 ## Kenney Sci-Fi Sounds 1.0
 
 - Source: https://kenney.nl/assets/sci-fi-sounds
@@ -162,11 +170,20 @@ Binary source art is tracked by Git LFS. Only files selected for the release ros
 - Author: SRG774
 - License: CC0 1.0 Universal
 - Version: published 2026-05-17; OGG archive updated 2026-07-09
-- Downloaded: 2026-07-18
-- Selected originals: `title.ogg`, `airy.ogg`, `pulse.ogg`, `urgent.ogg`, `transmission.ogg`, and `victory.ogg`
+- Downloaded: 2026-07-21
+- Selected originals: `title.ogg`, `airy.ogg`, `sector.ogg`, `pulse.ogg`, `urgent.ogg`, `transmission.ogg`, and `victory.ogg`
 - Local root: `Content/Audio/Music`
 - Modification: selected files only; filenames and encoded audio are unchanged.
-- Runtime mapping: menu, recovery/upgrade, combat, boss, defeat/results, and victory stinger respectively.
+- Runtime mapping: menu, recovery/upgrade, Adventure exploration, combat, boss, defeat/results, and victory stinger respectively. Music changes use a 0.35-second fade-out and 0.45-second fade-in.
+
+## Oxanium
+
+- Source: https://github.com/sevmeyer/oxanium/tree/master/fonts/ttf
+- License: SIL Open Font License 1.1 (`Content/Fonts/OFL-Oxanium.txt`)
+- Downloaded: 2026-07-21
+- Selected originals: `Oxanium-Regular.ttf` and `Oxanium-SemiBold.ttf`
+- Local root: `Content/Fonts`
+- Modification: unchanged TTFs compiled into 20 pt HUD, 22 pt body, and 44 pt heading SpriteFonts. The runtime bitmap glyph table has been removed.
 
 ## Arena construction
 

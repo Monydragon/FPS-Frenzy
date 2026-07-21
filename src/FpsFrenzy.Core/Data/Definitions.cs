@@ -69,18 +69,28 @@ public sealed record DifficultyDefinition(
     float EnemyDamageMultiplier,
     float AttackIntervalMultiplier,
     float ProjectileSpeedMultiplier,
-    float TellDurationMultiplier);
+    float TellDurationMultiplier,
+    float HealthDropMultiplier,
+    float AmmoDropMultiplier,
+    float SupplyAmountMultiplier,
+    float RarityLuckBonus);
 
 public static class DifficultyCatalog
 {
     public static IReadOnlyList<DifficultyDefinition> All { get; } =
     [
-        new(DifficultyMode.Casual, "CASUAL", 0.70f, 0.45f, 1.25f, 0.82f, 1.30f),
-        new(DifficultyMode.Easy, "EASY", 0.85f, 0.70f, 1.12f, 0.92f, 1.15f),
-        new(DifficultyMode.Normal, "NORMAL", 1.00f, 1.00f, 1.00f, 1.00f, 1.00f),
-        new(DifficultyMode.Hard, "HARD", 1.10f, 1.18f, 0.94f, 1.05f, 0.95f),
-        new(DifficultyMode.VeryHard, "VERY HARD", 1.20f, 1.38f, 0.88f, 1.10f, 0.90f),
-        new(DifficultyMode.Extreme, "EXTREME", 1.32f, 1.62f, 0.82f, 1.15f, 0.85f),
+        new(DifficultyMode.Casual, "CASUAL", 0.70f, 0.45f, 1.25f, 0.82f, 1.30f,
+            1.35f, 1.60f, 1.35f, 0.00f),
+        new(DifficultyMode.Easy, "EASY", 0.85f, 0.70f, 1.12f, 0.92f, 1.15f,
+            1.15f, 1.30f, 1.15f, 0.01f),
+        new(DifficultyMode.Normal, "NORMAL", 1.00f, 1.00f, 1.00f, 1.00f, 1.00f,
+            1.00f, 1.00f, 1.00f, 0.03f),
+        new(DifficultyMode.Hard, "HARD", 1.10f, 1.18f, 0.94f, 1.05f, 0.95f,
+            0.90f, 0.82f, 0.90f, 0.07f),
+        new(DifficultyMode.VeryHard, "VERY HARD", 1.20f, 1.38f, 0.88f, 1.10f, 0.90f,
+            0.78f, 0.65f, 0.80f, 0.13f),
+        new(DifficultyMode.Extreme, "EXTREME", 1.32f, 1.62f, 0.82f, 1.15f, 0.85f,
+            0.65f, 0.50f, 0.70f, 0.20f),
     ];
 
     public static DifficultyMode Normalize(DifficultyMode mode) => mode switch
@@ -99,6 +109,19 @@ public static class DifficultyCatalog
         DifficultyMode normalized = Normalize(mode);
         return All.First(definition => definition.Mode == normalized);
     }
+
+    public static float ScaleHealthDropChance(DifficultyMode mode, float baseChance) =>
+        Math.Clamp(baseChance * Get(mode).HealthDropMultiplier, 0f, 0.8f);
+
+    public static float ScaleAmmoDropChance(
+        DifficultyMode mode,
+        float scaledHealthChance,
+        float baseChance) =>
+        Math.Clamp(baseChance * Get(mode).AmmoDropMultiplier, 0f,
+            MathF.Max(0f, 1f - scaledHealthChance));
+
+    public static int ScaleSupplyAmount(DifficultyMode mode, int baseAmount) =>
+        Math.Max(1, (int)MathF.Round(Math.Max(1, baseAmount) * Get(mode).SupplyAmountMultiplier));
 }
 
 public sealed record WeaponDefinition
@@ -266,6 +289,17 @@ public sealed record ArenaPrimitiveDefinition
     public ArenaCollisionRole CollisionRole { get; init; } = ArenaCollisionRole.None;
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ArenaMountSurface>))]
+public enum ArenaMountSurface
+{
+    None,
+    Ground,
+    NorthWall,
+    SouthWall,
+    WestWall,
+    EastWall,
+}
+
 public sealed record ArenaPropDefinition
 {
     public required string Id { get; init; }
@@ -277,6 +311,9 @@ public sealed record ArenaPropDefinition
     public Vector3 DiffuseTint { get; init; } = Vector3.One;
     public Vector3 EmissiveTint { get; init; }
     public bool AnchorToGround { get; init; }
+    public Vector3 PlacementSize { get; init; }
+    public ArenaMountSurface MountSurface { get; init; }
+    public float PlayerClearance { get; init; }
 }
 
 public sealed record PickupSpawnDefinition

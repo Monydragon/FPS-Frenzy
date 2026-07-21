@@ -60,6 +60,7 @@ public sealed class FpsFrenzyGame : Game
     private bool _impactCaptureRendered;
     private bool _combatCaptured;
     private double _presentationSeconds;
+    private double _lastAdventureCombatSeconds = double.NegativeInfinity;
     private int _automaticMenuStage;
     private bool _automaticSetSwapTriggered;
     private double _nextAutomaticMenuSeconds;
@@ -71,10 +72,15 @@ public sealed class FpsFrenzyGame : Game
     private readonly ProfileStore _profileStore;
     private readonly ProfileData _profile;
     private readonly RunCheckpointStore _checkpointStore;
+    private readonly AdventureCheckpointStore _adventureCheckpointStore;
     private readonly RunLoadoutOverlayStore _loadoutOverlayStore;
     private readonly HashSet<string> _newUnlockIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _runUnlockBaselineIds = new(StringComparer.OrdinalIgnoreCase);
     private RunCheckpoint? _availableCheckpoint;
+    private AdventureCheckpoint? _availableAdventureCheckpoint;
+    private GameMode _activeMode = GameMode.Arena;
+    private GameMode _pendingStartMode = GameMode.Arena;
+    private int? _pendingAdventureSeed;
     private bool _resultRecorded;
     private readonly CharacterLabOptions? _characterLabOptions;
     private CharacterLabController? _characterLab;
@@ -127,10 +133,14 @@ public sealed class FpsFrenzyGame : Game
         _checkpointStore = _characterLabOptions is null
             ? RunCheckpointStore.CreateDefault()
             : new RunCheckpointStore(Path.Combine(isolatedStateDirectory, "checkpoint.json"));
+        _adventureCheckpointStore = _characterLabOptions is null
+            ? AdventureCheckpointStore.CreateDefault()
+            : new AdventureCheckpointStore(Path.Combine(isolatedStateDirectory, "adventure-checkpoint.json"));
         _loadoutOverlayStore = _characterLabOptions is null
             ? RunLoadoutOverlayStore.CreateDefault()
             : new RunLoadoutOverlayStore(Path.Combine(isolatedStateDirectory, "loadout-overlay.json"));
         _availableCheckpoint = _characterLabOptions is null ? _checkpointStore.Load() : null;
+        _availableAdventureCheckpoint = _characterLabOptions is null ? _adventureCheckpointStore.Load() : null;
         _automaticCapture = _characterLabOptions is null &&
             Environment.GetEnvironmentVariable("FPS_FRENZY_AUTOCAPTURE") == "1";
         _automaticMenuCapture = _characterLabOptions is null &&
@@ -187,10 +197,24 @@ public sealed class FpsFrenzyGame : Game
             _profile.SelectedStartingWeaponId);
 
         ConfigureMenuProfile();
-        RunCheckpoint? captureCheckpoint = _automaticCapture
-            ? CreateCaptureCheckpoint(_startingWaveIndex)
-            : null;
-        _simulation = CreateSimulation(captureCheckpoint, isFirstRun: false, seed: 1337);
+        bool captureAdventure = _automaticCapture &&
+            Environment.GetEnvironmentVariable("FPS_FRENZY_CAPTURE_ADVENTURE") == "1";
+        if (captureAdventure)
+        {
+            _activeMode = GameMode.Adventure;
+            int captureSeed = int.TryParse(
+                Environment.GetEnvironmentVariable("FPS_FRENZY_RUN_SEED"), out int configuredSeed)
+                ? Math.Clamp(configuredSeed, 1, int.MaxValue)
+                : 1337;
+            _simulation = CreateAdventureSimulation(checkpoint: null, seed: captureSeed);
+        }
+        else
+        {
+            RunCheckpoint? captureCheckpoint = _automaticCapture
+                ? CreateCaptureCheckpoint(_startingWaveIndex)
+                : null;
+            _simulation = CreateSimulation(captureCheckpoint, isFirstRun: false, seed: 1337);
+        }
         _primitives = new PrimitiveRenderer(GraphicsDevice);
         foreach (WeaponDefinition weapon in _catalog.Weapons.Values)
         {
@@ -233,7 +257,11 @@ public sealed class FpsFrenzyGame : Game
             _characterLab = new CharacterLabController(_characterLabOptions);
             _characterLabPresenter = _enemyModelPresenters[_characterLabEnemy.ModelAsset];
             _characterLabInstance = _characterLabPresenter.CreateInstance();
-            _characterLabRenderer = new CharacterLabRenderer(GraphicsDevice);
+            _characterLabRenderer = new CharacterLabRenderer(
+                GraphicsDevice,
+                Content.Load<SpriteFont>("Fonts/OxaniumHud"),
+                Content.Load<SpriteFont>("Fonts/OxaniumBody"),
+                Content.Load<SpriteFont>("Fonts/OxaniumHeading"));
             WriteCharacterLabCalibrationDiagnostics(
                 _characterLabEnemy,
                 _characterLabPresenter,
@@ -279,7 +307,11 @@ public sealed class FpsFrenzyGame : Game
             GraphicsDevice,
             Content.Load<Texture2D>("Textures/UI/menu-button"),
             Content.Load<Texture2D>("Textures/UI/menu-button-selected"),
-            Content.Load<Texture2D>("Textures/UI/menu-emblem"));
+            Content.Load<Texture2D>("Textures/UI/menu-emblem"),
+            Content.Load<Texture2D>("Textures/UI/title-menu-background"),
+            Content.Load<SpriteFont>("Fonts/OxaniumHud"),
+            Content.Load<SpriteFont>("Fonts/OxaniumBody"),
+            Content.Load<SpriteFont>("Fonts/OxaniumHeading"));
         _feedback = new CombatFeedbackPresenter(_catalog);
         if (_characterLabOptions is not null)
         {
@@ -329,10 +361,11 @@ public sealed class FpsFrenzyGame : Game
         }
 
         Rectangle safeArea = GraphicsDevice.Viewport.TitleSafeArea;
+        _menu.SetActiveMode(_activeMode);
         MenuInputSnapshot menuInput = MenuInputSnapshot.Capture(_menu.Page, safeArea);
         MenuPage previousMenuPage = _menu.Page;
         int previousMenuIndex = _menu.SelectedIndex;
-        MenuAction menuAction = _menu.Update(_settings, menuInput, safeArea);
+        MenuCommand menuCommand = _menu.UpdateCommand(_settings, menuInput, safeArea);
         if (_menu.SelectedIndex != previousMenuIndex && _menu.Page == previousMenuPage)
         {
             _audio?.PlayInterfaceCue("ui-hover", _settings);
@@ -342,7 +375,7 @@ public sealed class FpsFrenzyGame : Game
             _audio?.PlayInterfaceCue("ui-confirm", _settings);
         }
 
-        switch (menuAction)
+        switch (menuCommand.Type)
         {
             case MenuAction.Pause:
                 _simulation.SetPaused(true);
@@ -353,12 +386,35 @@ public sealed class FpsFrenzyGame : Game
                 _suppressGameplayInputUntilNeutral = true;
                 break;
             case MenuAction.Restart:
-                StartNewRun();
+                if (_activeMode == GameMode.Adventure)
+                {
+                    if (_adventureCheckpointStore.Load() is not null)
+                    {
+                        ContinueAdventure();
+                    }
+                    else
+                    {
+                        StartNewAdventure(_simulation.RunSeed);
+                    }
+                }
+                else
+                {
+                    StartNewRun();
+                }
                 break;
             case MenuAction.ContinueRun:
-                ContinueRun();
+                if (menuCommand.Mode == GameMode.Adventure)
+                {
+                    ContinueAdventure();
+                }
+                else
+                {
+                    ContinueRun();
+                }
                 break;
             case MenuAction.StartRun:
+                _pendingStartMode = menuCommand.Mode ?? GameMode.Arena;
+                _pendingAdventureSeed = menuCommand.Seed;
                 if (!_automaticCapture && !_profile.TutorialSeen)
                 {
                     _simulation.SetPaused(true);
@@ -366,7 +422,14 @@ public sealed class FpsFrenzyGame : Game
                     break;
                 }
 
-                StartNewRun();
+                if (_pendingStartMode == GameMode.Adventure)
+                {
+                    StartNewAdventure(_pendingAdventureSeed ?? GetNewRunSeed());
+                }
+                else
+                {
+                    StartNewRun();
+                }
                 break;
             case MenuAction.StartDebugLab:
                 StartDebugLabFromMenu();
@@ -374,13 +437,20 @@ public sealed class FpsFrenzyGame : Game
             case MenuAction.BeginRun:
                 _profile.TutorialSeen = true;
                 _profileStore.Save(_profile);
-                StartNewRun();
+                if (_pendingStartMode == GameMode.Adventure)
+                {
+                    StartNewAdventure(_pendingAdventureSeed ?? GetNewRunSeed());
+                }
+                else
+                {
+                    StartNewRun();
+                }
                 break;
             case MenuAction.ReturnToMain:
                 if (_runActive && !_debugSandboxActive &&
                     _simulation.Phase is not (GamePhase.Victory or GamePhase.Defeat))
                 {
-                    AbandonCheckpoint();
+                    AbandonActiveCheckpoint();
                 }
                 _runActive = false;
                 _simulation.SetPaused(true);
@@ -390,7 +460,7 @@ public sealed class FpsFrenzyGame : Game
             case MenuAction.Quit:
                 if (_runActive && !_debugSandboxActive)
                 {
-                    AbandonCheckpoint();
+                    AbandonActiveCheckpoint();
                 }
                 Exit();
                 return;
@@ -406,7 +476,22 @@ public sealed class FpsFrenzyGame : Game
                 _audio?.PlayInterfaceCue("ui-confirm", _settings);
                 break;
             case MenuAction.UpgradeSelected:
-                if (_menu.SelectedUpgradeId is not null && _simulation.RunPhase == RunPhase.RewardSelection)
+                if (_menu.SelectedUpgradeId is not null &&
+                    _simulation.AdventureSnapshot?.Phase == AdventureRunPhase.FloorReward)
+                {
+                    AdventureCheckpoint checkpoint = _simulation.ChooseAdventureBoon(_menu.SelectedUpgradeId);
+                    _profile.ApplyProgressionState(_simulation.Progression);
+                    _profileStore.Save(_profile);
+                    SaveAdventureCheckpoint(checkpoint);
+                    _audio?.PlayInterfaceCue("upgrade", _settings);
+                    RestartAdventureSimulation(checkpoint);
+                    if (_simulation?.CreateAdventureCheckpoint() is AdventureCheckpoint reconstructedEntry)
+                    {
+                        SaveAdventureCheckpoint(reconstructedEntry);
+                    }
+                    _suppressGameplayInputUntilNeutral = true;
+                }
+                else if (_menu.SelectedUpgradeId is not null && _simulation.RunPhase == RunPhase.RewardSelection)
                 {
                     _simulation.ChooseUpgrade(_menu.SelectedUpgradeId);
                     _profile.ApplyProgressionState(_simulation.Progression);
@@ -472,10 +557,10 @@ public sealed class FpsFrenzyGame : Game
             return;
         }
 
-        bool usesWeaponSets = _simulation.Arena.TraversalMode == ArenaTraversalMode.OpenArena;
+        bool usesWeaponSets = _simulation!.Arena.TraversalMode == ArenaTraversalMode.OpenArena;
         bool isDualWielding = _simulation.Player.LeftHandWeapon is WeaponState leftHandWeapon &&
             !ReferenceEquals(leftHandWeapon, _simulation.Player.EffectiveRightHandWeapon);
-        PlayerCommand sampled = _input.Sample(
+        PlayerCommand sampled = _input!.Sample(
             _simulation.Tick + 1,
             _simulation.Player.Id,
             GraphicsDevice,
@@ -504,7 +589,8 @@ public sealed class FpsFrenzyGame : Game
         }
         // Only controls that can activate a menu need a release gate. AimDownSights may be
         // logically latched by Toggle ADS, so including it here could suppress gameplay forever.
-        PlayerButtons transitionButtons = PlayerButtons.Fire | PlayerButtons.Reload | PlayerButtons.Jump;
+        PlayerButtons transitionButtons = PlayerButtons.Fire | PlayerButtons.Reload |
+            PlayerButtons.Jump | PlayerButtons.Interact;
         if (_suppressGameplayInputUntilNeutral)
         {
             bool neutral = (sampled.Buttons & transitionButtons) == PlayerButtons.None;
@@ -713,6 +799,13 @@ public sealed class FpsFrenzyGame : Game
             _audio?.PlayInterfaceCue("upgrade", _settings);
             RefreshMouseCapture();
         }
+        else if (_simulation.AdventureSnapshot?.Phase == AdventureRunPhase.FloorReward &&
+            _menu.Page == MenuPage.None)
+        {
+            _menu.OpenReward(GetAdventureBoonOffers());
+            _audio?.PlayInterfaceCue("upgrade", _settings);
+            RefreshMouseCapture();
+        }
 
         if (_simulation.Phase == GamePhase.Paused && !_menu.IsOpen && _runActive)
         {
@@ -727,8 +820,12 @@ public sealed class FpsFrenzyGame : Game
             RefreshMouseCapture();
         }
 
+        float openingCaptureDelay = _activeMode == GameMode.Adventure ? 1.55f : 0.65f;
+        float openingCaptureElapsed = _activeMode == GameMode.Adventure
+            ? _simulation.AdventureStageElapsedSeconds
+            : _simulation.ElapsedRunSeconds;
         if (_automaticCapture && !_capture.HasPendingCapture && !_openingCaptured &&
-            _simulation.ElapsedRunSeconds >= 0.65f)
+            openingCaptureElapsed >= openingCaptureDelay)
         {
             _capture.Queue(CaptureName("01-orbital-depot-opening"));
             _openingCaptured = true;
@@ -768,7 +865,16 @@ public sealed class FpsFrenzyGame : Game
             _nextAutomaticMenuSeconds = _presentationSeconds + 0.4d;
         }
 
-        if (_automaticMenuCapture && _combatCaptured && _startingWaveIndex == 0 &&
+        if (_automaticMenuCapture && _activeMode == GameMode.Adventure && _openingCaptureRendered &&
+            _automaticMenuStage == 0 && !_capture.HasPendingCapture)
+        {
+            _simulation.SetPaused(true);
+            _menu.OpenPause();
+            _capture.Queue(CaptureName("02-adventure-pause-map"));
+            _automaticMenuStage = 10;
+            _nextAutomaticMenuSeconds = _presentationSeconds + 0.25d;
+        }
+        else if (_automaticMenuCapture && _combatCaptured && _startingWaveIndex == 0 &&
             !_capture.HasPendingCapture)
         {
             if (_automaticMenuStage == 0 && _presentationSeconds >= _nextAutomaticMenuSeconds)
@@ -837,26 +943,40 @@ public sealed class FpsFrenzyGame : Game
             }
             else if (_automaticMenuStage == 8 && _presentationSeconds >= _nextAutomaticMenuSeconds)
             {
-                _menu.OpenAccessibility();
-                _capture.Queue(CaptureName("13-accessibility-menu"));
+                _menu.OpenControls(MenuPage.Pause);
+                _capture.Queue(CaptureName("13-controller-bindings"));
                 _automaticMenuStage = 9;
                 _nextAutomaticMenuSeconds = _presentationSeconds + 0.25d;
             }
             else if (_automaticMenuStage == 9 && _presentationSeconds >= _nextAutomaticMenuSeconds)
             {
+                _menu.OpenAccessibility();
+                _capture.Queue(CaptureName("14-accessibility-menu"));
+                _automaticMenuStage = 10;
+                _nextAutomaticMenuSeconds = _presentationSeconds + 0.25d;
+            }
+            else if (_automaticMenuStage == 10 && _presentationSeconds >= _nextAutomaticMenuSeconds)
+            {
                 RestartSimulation();
                 _simulation.SetPaused(true);
                 _runActive = false;
                 _menu.OpenMain();
-                _capture.Queue(CaptureName("14-main-menu"));
-                _automaticMenuStage = 10;
+                _capture.Queue(CaptureName("15-main-menu"));
+                _automaticMenuStage = 11;
                 _nextAutomaticMenuSeconds = _presentationSeconds + 0.25d;
             }
         }
 
-        bool automaticCaptureComplete = _automaticCapture && _combatCaptured &&
+        int completedAutomaticMenuStage = _activeMode == GameMode.Adventure ? 10 : 11;
+        bool adventureOpeningCaptureComplete = _automaticCapture && _activeMode == GameMode.Adventure &&
+            !_capture.HasPendingCapture &&
+            (!_automaticMenuCapture && _openingCaptureRendered ||
+             _automaticMenuCapture && _automaticMenuStage >= completedAutomaticMenuStage &&
+             _presentationSeconds >= _nextAutomaticMenuSeconds);
+        bool automaticCaptureComplete = adventureOpeningCaptureComplete ||
+            _automaticCapture && _combatCaptured &&
             ((!_automaticMenuCapture && _presentationSeconds >= _nextAutomaticMenuSeconds) ||
-             (_automaticMenuCapture && _automaticMenuStage >= 10 &&
+             (_automaticMenuCapture && _automaticMenuStage >= completedAutomaticMenuStage &&
               _presentationSeconds >= _nextAutomaticMenuSeconds));
         if (automaticCaptureComplete && !_capture.IsRecording)
         {
@@ -997,7 +1117,8 @@ public sealed class FpsFrenzyGame : Game
                 (int)_simulation.ThreatTier,
                 CreateCalibrationAxesLabel(_simulation.Player.EffectiveRightHandWeapon.Definition),
                 CreateCalibrationAnchorLabel(_simulation.Player.EffectiveRightHandWeapon.Definition),
-                _debugLabStatus));
+                _debugLabStatus),
+            _presentationSeconds);
         base.Draw(gameTime);
         string? capturedPath = _capture.CaptureIfRequested(GraphicsDevice);
         _capture.CaptureRecordingFrame(GraphicsDevice, gameTime.ElapsedGameTime);
@@ -1092,18 +1213,21 @@ public sealed class FpsFrenzyGame : Game
         using Stream wasp = TitleContainer.OpenStream("Content/Data/Enemies/robot-wasp.json");
         using Stream robotWarden = TitleContainer.OpenStream("Content/Data/Enemies/robot-warden.json");
         using Stream breachWalker = TitleContainer.OpenStream("Content/Data/Enemies/breach-walker.json");
+        using Stream coreWarden = TitleContainer.OpenStream("Content/Data/Enemies/core-warden.json");
         using Stream orbitalArena = TitleContainer.OpenStream("Content/Data/Arenas/orbital-depot.json");
         using Stream orbitalWaves = TitleContainer.OpenStream("Content/Data/Waves/orbital-depot-waves.json");
+        using Stream nullSignal = TitleContainer.OpenStream("Content/Data/Adventures/null-signal.json");
         return ContentCatalog.Load(
             [pulse, burst, scatter, beam, plasma, arc, smg, precision, heavy, experimental],
-            [striker, interceptor, juggernaut, wasp, robotWarden, breachWalker],
+            [striker, interceptor, juggernaut, wasp, robotWarden, breachWalker, coreWarden],
             [orbitalArena],
             [orbitalWaves],
             [],
             [pulseArchetype, smgArchetype, burstArchetype, scatterArchetype, precisionArchetype,
                 beamArchetype, plasmaArchetype, arcArchetype, heavyArchetype, experimentalArchetype],
             [weaponBases],
-            [weaponVisuals]);
+            [weaponVisuals],
+            [nullSignal]);
     }
 
     private static Stream OpenWeaponVisualCalibration(bool preferLoose)
@@ -1274,7 +1398,7 @@ public sealed class FpsFrenzyGame : Game
             primitives.Draw(primitive, texture);
         }
         DrawArenaModels(simulation.Arena, view, projection);
-        DrawSectorPresentation(simulation, primitives);
+        DrawSectorPresentation(simulation, primitives, _settings);
         if (_debug.Enabled && _debug.ShowCollision)
         {
             DrawCollisionOverlay(simulation, primitives);
@@ -1741,6 +1865,7 @@ public sealed class FpsFrenzyGame : Game
 
     private void StartNewRun()
     {
+        _activeMode = GameMode.Arena;
         bool isFirstRun = _profile.RunsStarted == 0;
         _debugSandboxActive = _debug.Enabled;
         if (!_debugSandboxActive)
@@ -1779,6 +1904,7 @@ public sealed class FpsFrenzyGame : Game
             checkpoint,
             _profile.SelectedStartingWeaponId);
         checkpoint = ApplyRunLoadoutOverlay(checkpoint);
+        _activeMode = GameMode.Arena;
         _debugSandboxActive = _debug.Enabled;
 
         _newUnlockIds.Clear();
@@ -1816,6 +1942,111 @@ public sealed class FpsFrenzyGame : Game
         _runActive = true;
         _menu.Close();
         _suppressGameplayInputUntilNeutral = true;
+    }
+
+    private void StartNewAdventure(int seed)
+    {
+        _activeMode = GameMode.Adventure;
+        _debugSandboxActive = false;
+        _adventureCheckpointStore.Clear();
+        _availableAdventureCheckpoint = null;
+        _newUnlockIds.Clear();
+        _runUnlockBaselineIds.Clear();
+        _runUnlockBaselineIds.UnionWith(EnumerateProfileUnlockIds());
+        _resultRecorded = false;
+        _profile.AdventureRunsStarted++;
+        _profileStore.Save(_profile);
+
+        RestartAdventureSimulation(checkpoint: null, seed);
+        _simulation?.SetPlayerInvulnerable(_settings.GodMode || _debug.GodModeOverride);
+        if (_simulation?.CreateAdventureCheckpoint() is AdventureCheckpoint checkpoint)
+        {
+            SaveAdventureCheckpoint(checkpoint);
+        }
+        _runActive = true;
+        _menu.Close();
+        _suppressGameplayInputUntilNeutral = true;
+    }
+
+    private void ContinueAdventure()
+    {
+        AdventureCheckpoint? checkpoint = _adventureCheckpointStore.Load();
+        if (checkpoint is null || _catalog is null ||
+            !_catalog.Adventures.TryGetValue(checkpoint.AdventureId, out AdventureDefinition? adventure) ||
+            !checkpoint.GeneratorVersion.Equals(adventure.GeneratorVersion, StringComparison.Ordinal))
+        {
+            StartNewAdventure(GetNewRunSeed());
+            return;
+        }
+
+        _activeMode = GameMode.Adventure;
+        _debugSandboxActive = false;
+        _newUnlockIds.Clear();
+        _runUnlockBaselineIds.Clear();
+        _runUnlockBaselineIds.UnionWith(EnumerateProfileUnlockIds());
+        _resultRecorded = false;
+        RestartAdventureSimulation(checkpoint);
+        if (checkpoint.NextStageIndex < adventure.Floors.Count && checkpoint.EntryLayoutHash is not null &&
+            !_simulation!.GeneratedDungeonFloor!.LayoutHash.Equals(
+                checkpoint.EntryLayoutHash, StringComparison.OrdinalIgnoreCase))
+        {
+            _adventureCheckpointStore.Clear();
+            StartNewAdventure(checkpoint.Seed);
+            return;
+        }
+
+        _availableAdventureCheckpoint = checkpoint;
+        _simulation?.SetPlayerInvulnerable(_settings.GodMode || _debug.GodModeOverride);
+        _runActive = true;
+        _menu.Close();
+        _suppressGameplayInputUntilNeutral = true;
+    }
+
+    private void RestartAdventureSimulation(AdventureCheckpoint? checkpoint, int? seed = null)
+    {
+        if (_catalog is null)
+        {
+            return;
+        }
+
+        _simulation?.Dispose();
+        _simulation = CreateAdventureSimulation(checkpoint, seed ?? checkpoint?.Seed ?? GetNewRunSeed());
+        _enemyModels.Clear();
+        _feedback = new CombatFeedbackPresenter(_catalog);
+        _pendingLook = CoreVector2.Zero;
+        _accumulatorSeconds = 0d;
+        _interpolationAlpha = 0f;
+        _adsBlend = 0f;
+        _presentedWeaponId = null;
+        _weaponPresentationSeconds = 0f;
+    }
+
+    private GameSimulation CreateAdventureSimulation(AdventureCheckpoint? checkpoint, int seed)
+    {
+        if (_catalog is null)
+        {
+            throw new InvalidOperationException("Content must be loaded before creating an Adventure run.");
+        }
+
+        PlayerProgressionState progression = _profile.CreateProgressionState();
+        string startingWeaponId = ResolveStartingWeaponId(
+            _catalog, checkpoint?.WeaponStates.FirstOrDefault()?.WeaponId, _profile.SelectedStartingWeaponId);
+        return new GameSimulation(_catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = checkpoint?.AdventureId ?? "null-signal",
+            Seed = seed,
+            Difficulty = checkpoint?.Difficulty ?? _profile.SelectedDifficulty,
+            ThreatTier = checkpoint?.ThreatTier ?? _profile.SelectedThreatTier,
+            StartingWeaponId = startingWeaponId,
+            StartingEquipment = progression.Loadout,
+            StartingWeaponQuickbar = checkpoint?.WeaponQuickbar ?? _profile.StarterWeaponQuickbar.Clone(),
+            StartingStash = progression.Stash,
+            Progression = progression,
+            GodModeEnabled = _settings.GodMode,
+            UnlockedUpgradeIds = _profile.UnlockedUpgradeIds,
+            AdventureCheckpoint = checkpoint,
+        });
     }
 
     private void HandleDebugTestAction(DebugTestAction action)
@@ -2336,6 +2567,28 @@ public sealed class FpsFrenzyGame : Game
         return _automaticCapture ? 1337 : Random.Shared.Next(1, int.MaxValue);
     }
 
+    private IEnumerable<(string Id, string DisplayName, string Description)> GetAdventureBoonOffers()
+    {
+        if (_catalog is null || _simulation?.AdventureSnapshot is not AdventureSnapshot snapshot)
+        {
+            return [];
+        }
+
+        UpgradeDefinition[] available = _catalog.Upgrades.Values
+            .Where(upgrade => !snapshot.BoonIds.Contains(upgrade.Id, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(upgrade => upgrade.Id, StringComparer.Ordinal)
+            .ToArray();
+        if (available.Length == 0)
+        {
+            return [];
+        }
+
+        int start = (int)((uint)(snapshot.Seed * 397 ^ snapshot.StageIndex * 7919) % (uint)available.Length);
+        return Enumerable.Range(0, Math.Min(3, available.Length))
+            .Select(offset => available[(start + offset) % available.Length])
+            .Select(upgrade => (upgrade.Id, upgrade.DisplayName, upgrade.Description));
+    }
+
     internal static string ResolveStartingWeaponId(
         ContentCatalog catalog,
         string? requestedWeaponId,
@@ -2404,6 +2657,28 @@ public sealed class FpsFrenzyGame : Game
             _availableCheckpoint = checkpoint;
             ConfigureMenuProfile();
         }
+    }
+
+    private void SaveAdventureCheckpoint(AdventureCheckpoint checkpoint)
+    {
+        if (_automaticCapture || _debugSandboxActive)
+        {
+            return;
+        }
+        if (_adventureCheckpointStore.Save(checkpoint))
+        {
+            _availableAdventureCheckpoint = checkpoint;
+            ConfigureMenuProfile();
+        }
+    }
+
+    private void AbandonActiveCheckpoint()
+    {
+        if (_activeMode == GameMode.Arena)
+        {
+            AbandonCheckpoint();
+        }
+        // Adventure exits deliberately retain the committed stage-entry checkpoint.
     }
 
     private void AbandonCheckpoint()
@@ -2484,7 +2759,8 @@ public sealed class FpsFrenzyGame : Game
                 .OrderBy(WeaponMenuOrder)
                 .Select(weapon => (weapon.Id, weapon.DisplayName)),
             _availableCheckpoint is not null,
-            _catalog);
+            _catalog,
+            _availableAdventureCheckpoint is not null);
     }
 
     private void ProcessProgressionEvents(IReadOnlyList<CombatEvent> events)
@@ -2588,9 +2864,11 @@ public sealed class FpsFrenzyGame : Game
         _profile.ApplyProgressionState(_simulation.Progression);
 
         RunSnapshot? runSnapshot = _simulation.RunSnapshot;
+        AdventureSnapshot? adventureSnapshot = _simulation.AdventureSnapshot;
         bool godModeUsed = runSnapshot?.GodModeUsed ?? _simulation.GodModeEnabled;
         _profile.RecordRun(new RunRecord
         {
+            Mode = _simulation.Mode,
             CompletedAtUtc = DateTimeOffset.UtcNow,
             Seed = _simulation.RunSeed,
             Victory = _simulation.Phase == GamePhase.Victory,
@@ -2605,23 +2883,41 @@ public sealed class FpsFrenzyGame : Game
             ThreatTier = _simulation.ThreatTier,
             Difficulty = _simulation.Difficulty,
             PlayerLevel = _simulation.Progression.Level,
-            LevelsGained = runSnapshot?.PlayerLevelsGained ?? 0,
-            ExperienceGained = runSnapshot?.ExperienceGained ?? 0,
-            ProficiencyExperienceGained = runSnapshot?.ProficiencyExperienceGained is { } proficiency
-                ? new Dictionary<WeaponFamily, int>(proficiency)
-                : [],
-            AbilitiesMastered = runSnapshot?.AbilitiesMastered.ToList() ?? [],
-            RarityTotals = runSnapshot?.RarityTotals is { } rarities
-                ? new Dictionary<ItemRarity, int>(rarities)
-                : [],
-            EquipmentCollected = runSnapshot?.EquipmentCollected ?? 0,
-            HighestItemPower = runSnapshot?.HighestItemPower ?? 0,
+            LevelsGained = _simulation.RunLevelsGained,
+            ExperienceGained = _simulation.RunExperienceEarned,
+            ProficiencyExperienceGained = new Dictionary<WeaponFamily, int>(
+                _simulation.RunProficiencyExperience),
+            AbilitiesMastered = _simulation.RunAbilitiesMastered.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            RarityTotals = new Dictionary<ItemRarity, int>(_simulation.RunRarityTotals),
+            EquipmentCollected = _simulation.RunEquipmentCollected,
+            HighestItemPower = _simulation.RunHighestItemPower,
+            FloorsCompleted = adventureSnapshot is null ? 0 : Math.Min(3, adventureSnapshot.StageIndex),
+            SecretsFound = adventureSnapshot?.SecretsFound ?? 0,
+            LoreFound = adventureSnapshot?.LoreFound ?? 0,
+            GeneratorVersion = adventureSnapshot?.GeneratorVersion,
+            LayoutHash = adventureSnapshot?.LayoutHash,
         });
+        if (adventureSnapshot is not null)
+        {
+            foreach (string loreId in adventureSnapshot.CompletedInteractables
+                .Where(id => id.Contains("lore", StringComparison.OrdinalIgnoreCase)))
+            {
+                _profile.DiscoveredLoreIds.Add(loreId);
+            }
+        }
         if (!_automaticCapture)
         {
             _profileStore.Save(_profile);
-            _checkpointStore.Clear();
-            _availableCheckpoint = null;
+            if (_simulation.Mode == GameMode.Arena)
+            {
+                _checkpointStore.Clear();
+                _availableCheckpoint = null;
+            }
+            else if (_simulation.Phase == GamePhase.Victory)
+            {
+                _adventureCheckpointStore.Clear();
+                _availableAdventureCheckpoint = null;
+            }
         }
         ConfigureMenuProfile();
         _resultRecorded = true;
@@ -2701,6 +2997,27 @@ public sealed class FpsFrenzyGame : Game
             return AudioMusicState.Defeat;
         }
 
+        if (_simulation.Mode == GameMode.Adventure)
+        {
+            AdventureSnapshot? adventure = _simulation.AdventureSnapshot;
+            if (adventure?.StageKind == AdventureStageKind.Boss)
+            {
+                return AudioMusicState.Boss;
+            }
+            if (adventure?.Phase == AdventureRunPhase.FloorReward)
+            {
+                return AudioMusicState.Intermission;
+            }
+            if (_simulation.RemainingEnemies > 0)
+            {
+                _lastAdventureCombatSeconds = _presentationSeconds;
+                return AudioMusicState.Combat;
+            }
+            return _presentationSeconds - _lastAdventureCombatSeconds <= 1.5d
+                ? AudioMusicState.Combat
+                : AudioMusicState.AdventureExplore;
+        }
+
         if (_simulation.RunPhase == RunPhase.BossActive || _simulation.IsBossWave)
         {
             return AudioMusicState.Boss;
@@ -2743,8 +3060,12 @@ public sealed class FpsFrenzyGame : Game
         return false;
     }
 
-    private static void DrawSectorPresentation(GameSimulation simulation, PrimitiveRenderer primitives)
+    private static void DrawSectorPresentation(
+        GameSimulation simulation,
+        PrimitiveRenderer primitives,
+        GameSettings settings)
     {
+        DrawAdventurePresentation(simulation, primitives, settings);
         if (simulation.RunPhase == RunPhase.BossActive)
         {
             Vector3 center = simulation.Arena.BossArenaAnchor.ToXna();
@@ -2833,6 +3154,125 @@ public sealed class FpsFrenzyGame : Game
                 basePosition + new Vector3(0f, enemy.Definition.Visual.TargetHeight + 4f, 0f),
                 0.045f,
                 cleanupColor);
+        }
+    }
+
+    private static void DrawAdventurePresentation(
+        GameSimulation simulation,
+        PrimitiveRenderer primitives,
+        GameSettings settings)
+    {
+        AdventureSnapshot? snapshot = simulation.AdventureSnapshot;
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        Color hazardColor = settings.ColorVisionMode switch
+        {
+            ColorVisionMode.Protanopia => new Color(75, 205, 255),
+            ColorVisionMode.Deuteranopia => new Color(255, 205, 55),
+            ColorVisionMode.Tritanopia => new Color(255, 100, 125),
+            _ => new Color(255, 102, 125),
+        };
+        if (simulation.GeneratedDungeonFloor is { } floor)
+        {
+            foreach (GeneratedDungeonHazard hazard in floor.Hazards)
+            {
+                float cycle = hazard.ActiveSeconds + hazard.InactiveSeconds;
+                float phase = (simulation.ElapsedRunSeconds + hazard.PhaseOffsetSeconds) % cycle;
+                bool active = phase < hazard.ActiveSeconds;
+                float intensity = settings.ReducedFlash ? (active ? 0.72f : 0.3f) :
+                    active ? 0.78f + MathF.Sin(simulation.ElapsedRunSeconds * 9f) * 0.18f : 0.24f;
+                Color color = hazardColor * intensity;
+                primitives.DrawCube(hazard.Position.ToXna(), hazard.Size.ToXna(), color,
+                    emissive: !settings.ReducedFlash);
+            }
+
+            HashSet<string> completed = snapshot.CompletedInteractables.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (GeneratedDungeonInteractable interactable in floor.Interactables.Where(item =>
+                !completed.Contains(item.Id) &&
+                (snapshot.DiscoveredRooms.Contains(item.RoomIndex) || item.ObjectiveId is not null)))
+            {
+                Vector3 position = interactable.Position.ToXna();
+                bool available = simulation.CanInteractWithAdventure(interactable.Id);
+                Color marker = available
+                    ? interactable.Kind == AdventureInteractableKind.Lift
+                        ? new Color(89, 230, 178)
+                        : interactable.Optional ? new Color(87, 220, 245) : new Color(255, 191, 85)
+                    : new Color(255, 102, 125);
+                switch (interactable.Kind)
+                {
+                    case AdventureInteractableKind.EquipmentCache:
+                        primitives.DrawCube(position + new Vector3(0f, 0.28f, 0f),
+                            new Vector3(1.45f, 0.48f, 0.9f), new Color(18, 46, 62));
+                        primitives.DrawCube(position + new Vector3(0f, 0.59f, -0.04f),
+                            new Vector3(1.45f, 0.18f, 0.9f), marker,
+                            emissive: !settings.ReducedFlash);
+                        primitives.DrawCube(position + new Vector3(-0.5f, 0.46f, -0.47f),
+                            new Vector3(0.12f, 0.58f, 0.07f), new Color(185, 216, 226));
+                        primitives.DrawCube(position + new Vector3(0.5f, 0.46f, -0.47f),
+                            new Vector3(0.12f, 0.58f, 0.07f), new Color(185, 216, 226));
+                        primitives.DrawBeam(position + new Vector3(0f, 0.7f, 0f),
+                            position + new Vector3(0f, 2.05f, 0f), 0.018f, marker);
+                        break;
+                    case AdventureInteractableKind.Lift:
+                        primitives.DrawCube(position + new Vector3(0f, 0.04f, 0f),
+                            new Vector3(3.2f, 0.08f, 3.2f), marker * 0.65f,
+                            emissive: available && !settings.ReducedFlash);
+                        foreach (Vector3 corner in new[]
+                        {
+                            new Vector3(-1.5f, 0.08f, -1.5f), new Vector3(1.5f, 0.08f, -1.5f),
+                            new Vector3(1.5f, 0.08f, 1.5f), new Vector3(-1.5f, 0.08f, 1.5f),
+                        })
+                        {
+                            primitives.DrawBeam(position + corner, position + corner + new Vector3(0f, 2.5f, 0f),
+                                0.045f, marker);
+                        }
+                        break;
+                    case AdventureInteractableKind.LoreTerminal:
+                    case AdventureInteractableKind.FabricatorConsole:
+                    case AdventureInteractableKind.SignalAnchor:
+                    case AdventureInteractableKind.PowerRelay:
+                        primitives.DrawCube(position + new Vector3(0f, 0.55f, 0f),
+                            new Vector3(0.85f, 1.1f, 0.7f), new Color(20, 42, 57));
+                        primitives.DrawCube(position + new Vector3(0f, 1.02f, -0.38f),
+                            new Vector3(0.68f, 0.42f, 0.06f), marker,
+                            emissive: available && !settings.ReducedFlash);
+                        primitives.DrawBeam(position + new Vector3(0f, 1.15f, 0f),
+                            position + new Vector3(0f, 2.15f, 0f), 0.018f, marker);
+                        break;
+                    default:
+                        primitives.DrawBeam(position + new Vector3(0f, 0.08f, 0f),
+                            position + new Vector3(0f, 1.8f, 0f), 0.025f, marker);
+                        primitives.DrawCube(position + new Vector3(0f, 0.25f, 0f),
+                            new Vector3(0.24f), marker, emissive: available && !settings.ReducedFlash);
+                        break;
+                }
+            }
+        }
+
+        if (snapshot.StageKind == AdventureStageKind.Boss)
+        {
+            Vector3[] controls = [new(-10f, 0.08f, 0f), new(10f, 0.08f, 0f)];
+            foreach (Vector3 control in controls)
+            {
+                primitives.DrawBeam(control, control + new Vector3(0f, 1.7f, 0f), 0.035f,
+                    new Color(87, 220, 245));
+            }
+
+            if (simulation.ActiveBoss is { CurrentBossPhaseIndex: >= 2 })
+            {
+                Vector3[] pads = [new(-7f, 0.04f, -6f), new(7f, 0.04f, -6f),
+                    new(7f, 0.04f, 6f), new(-7f, 0.04f, 6f)];
+                int activePad = (int)(simulation.ElapsedRunSeconds / 1.25f) % pads.Length;
+                for (int index = 0; index < pads.Length; index++)
+                {
+                    Color color = hazardColor * (index == activePad ? 0.9f : 0.22f);
+                    primitives.DrawCube(pads[index], new Vector3(6f, 0.06f, 6f), color,
+                        emissive: index == activePad && !settings.ReducedFlash);
+                }
+            }
         }
     }
 

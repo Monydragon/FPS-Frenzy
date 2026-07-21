@@ -15,7 +15,9 @@ public enum RunPhase
 
 public sealed record RunConfiguration
 {
+    public GameMode Mode { get; init; } = GameMode.Arena;
     public string ArenaId { get; init; } = "training-ring";
+    public string AdventureId { get; init; } = "null-signal";
     public int Seed { get; init; } = 1337;
     public DifficultyMode Difficulty { get; init; } = DifficultyMode.Normal;
     public string StartingWeaponId { get; init; } = "pulse-sidearm";
@@ -30,6 +32,7 @@ public sealed record RunConfiguration
     public bool IsFirstRun { get; init; }
     public IReadOnlyCollection<string>? UnlockedUpgradeIds { get; init; }
     public RunCheckpoint? Checkpoint { get; init; }
+    public AdventureCheckpoint? AdventureCheckpoint { get; init; }
 }
 
 public sealed record WeaponCheckpointState

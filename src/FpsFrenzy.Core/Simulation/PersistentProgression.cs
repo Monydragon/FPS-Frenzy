@@ -874,7 +874,7 @@ public static class LootGenerator
 
     private static ItemRarity RollRarity(ref ulong state, ThreatTier tier, float rarityLuck)
     {
-        float value = MathF.Max(0f, NextFloat(ref state) -
+        float value = MathF.Min(1f, NextFloat(ref state) +
             (Math.Clamp(rarityLuck, 0f, 0.5f) * 0.25f));
         float cumulative = 0f;
         float[] probabilities = RpgProgressionMath.RarityProbabilities(tier);

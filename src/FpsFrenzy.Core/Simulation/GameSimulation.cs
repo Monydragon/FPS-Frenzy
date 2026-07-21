@@ -9,8 +9,7 @@ public sealed class GameSimulation : IDisposable
     public const float FixedDeltaSeconds = 1f / 60f;
     public const float PlayerMoveSpeed = 7.5f;
     public const float PlayerEyeHeight = 1.65f;
-
-    private static readonly IReadOnlySet<string> NoUpgradeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    public const float AdventureInteractionRadius = 4.25f;
 
     private sealed record QuickbarCandidate(
         StarterWeaponReference Reference,
@@ -23,6 +22,11 @@ public sealed class GameSimulation : IDisposable
     private readonly WaveSetDefinition _waveSet;
     private readonly List<WaveDefinition> _runWaves;
     private readonly RunDirector? _runDirector;
+    private readonly RunModifiers _modifiers;
+    private readonly AdventureDirector? _adventureDirector;
+    private readonly GeneratedDungeonFloor? _adventureFloor;
+    private readonly HashSet<string> _spawnedAdventureGroups = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _disabledStaticColliderIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly NavigationGrid _navigation;
     private uint _randomState;
     private readonly BepuPlayerController _playerController;
@@ -78,6 +82,7 @@ public sealed class GameSimulation : IDisposable
     private readonly HashSet<string> _runCollectedItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ItemRarity, int> _runRarityTotals = [];
     private int _runHighestItemPower;
+    private float _adventureStageElapsedSeconds;
 
     public GameSimulation(ContentCatalog catalog, RunConfiguration configuration)
     {
@@ -85,8 +90,12 @@ public sealed class GameSimulation : IDisposable
         ArgumentNullException.ThrowIfNull(configuration);
         _configuration = configuration;
         _catalog = catalog;
-        Difficulty = DifficultyCatalog.Normalize(configuration.Checkpoint?.Difficulty ?? configuration.Difficulty);
-        ThreatTier = configuration.Checkpoint?.ThreatTier ?? configuration.ThreatTier;
+        AdventureCheckpoint? adventureCheckpoint = configuration.Mode == GameMode.Adventure
+            ? configuration.AdventureCheckpoint
+            : null;
+        Difficulty = DifficultyCatalog.Normalize(
+            adventureCheckpoint?.Difficulty ?? configuration.Checkpoint?.Difficulty ?? configuration.Difficulty);
+        ThreatTier = adventureCheckpoint?.ThreatTier ?? configuration.Checkpoint?.ThreatTier ?? configuration.ThreatTier;
         if (ThreatTier is < ThreatTier.TierI or > ThreatTier.TierX)
         {
             throw new ArgumentOutOfRangeException(nameof(configuration), "Threat tier must be Tier I-X.");
@@ -98,7 +107,8 @@ public sealed class GameSimulation : IDisposable
             throw new ArgumentException("The selected threat tier has not been unlocked.", nameof(configuration));
         }
 
-        _pendingProgression = configuration.Checkpoint?.PendingProgression ?? CreatePendingProgression(0);
+        _pendingProgression = adventureCheckpoint?.CommittedProgression ??
+            configuration.Checkpoint?.PendingProgression ?? CreatePendingProgression(0);
         _recoveryCache = configuration.Checkpoint?.RecoveryCache ?? new RecoveryCache();
         _lootDropSerial = Math.Max(0, configuration.Checkpoint?.LootDropSerial ?? 0);
         if (configuration.Checkpoint is RunCheckpoint progressionCheckpoint)
@@ -117,14 +127,34 @@ public sealed class GameSimulation : IDisposable
             }
             _runHighestItemPower = Math.Max(0, progressionCheckpoint.RunHighestItemPower);
         }
-        IEnumerable<EquipmentInstance> equipmentItems = configuration.Checkpoint?.EquipmentItems.Count > 0
+        else if (adventureCheckpoint is not null)
+        {
+            _runExperienceEarned = Math.Max(0, adventureCheckpoint.RunExperienceEarned);
+            _runLevelsGained = Math.Max(0, adventureCheckpoint.RunLevelsGained);
+            foreach ((WeaponFamily family, int amount) in adventureCheckpoint.RunProficiencyExperience)
+            {
+                _runProficiencyExperience[family] = Math.Max(0, amount);
+            }
+            _runAbilitiesMastered.UnionWith(adventureCheckpoint.RunAbilitiesMastered);
+            _runCollectedItemIds.UnionWith(adventureCheckpoint.RunCollectedItemIds);
+            foreach ((ItemRarity rarity, int count) in adventureCheckpoint.RunRarityTotals)
+            {
+                _runRarityTotals[rarity] = Math.Max(0, count);
+            }
+            _runHighestItemPower = Math.Max(0, adventureCheckpoint.RunHighestItemPower);
+        }
+        IEnumerable<EquipmentInstance> equipmentItems = adventureCheckpoint?.EquipmentItems.Count > 0
+            ? adventureCheckpoint.EquipmentItems
+            : configuration.Checkpoint?.EquipmentItems.Count > 0
             ? configuration.Checkpoint.EquipmentItems
             : configuration.StartingStash ?? Progression.Stash;
         equipmentItems = equipmentItems.Concat(configuration.Checkpoint?.IssuedItemInstances ?? []);
         _equipmentItems = equipmentItems
             .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        EquipmentLoadout = configuration.Checkpoint?.EquipmentLoadout.EquippedItemIds.Count > 0
+        EquipmentLoadout = adventureCheckpoint?.EquipmentLoadout.EquippedItemIds.Count > 0
+            ? adventureCheckpoint.EquipmentLoadout.Clone()
+            : configuration.Checkpoint?.EquipmentLoadout.EquippedItemIds.Count > 0
             ? configuration.Checkpoint.EquipmentLoadout.Clone()
             : configuration.StartingEquipment?.Clone() ?? Progression.Loadout.Clone();
         if (configuration.Checkpoint is not null)
@@ -134,12 +164,43 @@ public sealed class GameSimulation : IDisposable
                 _abilityCooldowns[abilityId] = NonNegativeFinite(cooldown);
             }
         }
-        string arenaId = configuration.Checkpoint?.ArenaId is string checkpointArenaId &&
-            catalog.Arenas.ContainsKey(checkpointArenaId)
-                ? checkpointArenaId
-                : configuration.ArenaId;
-        Arena = catalog.Arenas[arenaId];
-        _waveSet = catalog.WaveSets[Arena.WaveSetId];
+        if (configuration.Mode == GameMode.Adventure)
+        {
+            if (!catalog.Adventures.TryGetValue(configuration.AdventureId, out AdventureDefinition? adventure))
+            {
+                throw new ArgumentException($"Unknown Adventure '{configuration.AdventureId}'.", nameof(configuration));
+            }
+            if (adventureCheckpoint is not null &&
+                (!adventureCheckpoint.AdventureId.Equals(adventure.Id, StringComparison.OrdinalIgnoreCase) ||
+                 adventureCheckpoint.Seed != configuration.Seed ||
+                 !adventureCheckpoint.GeneratorVersion.Equals(adventure.GeneratorVersion, StringComparison.Ordinal)))
+            {
+                throw new ArgumentException("The Adventure checkpoint does not match the requested run.",
+                    nameof(configuration));
+            }
+
+            _adventureDirector = new AdventureDirector(adventure, configuration.Seed, adventureCheckpoint);
+            if (_adventureDirector.StageIndex < adventure.Floors.Count)
+            {
+                _adventureFloor = _adventureDirector.BeginGeneratedFloor();
+                Arena = _adventureFloor.Arena;
+            }
+            else
+            {
+                _adventureDirector.BeginBossStage();
+                Arena = CreateAdventureBossArena(adventure.Boss.ArenaId, configuration.Seed);
+            }
+            _waveSet = catalog.WaveSets.Values.OrderBy(waveSet => waveSet.Id, StringComparer.Ordinal).First();
+        }
+        else
+        {
+            string arenaId = configuration.Checkpoint?.ArenaId is string checkpointArenaId &&
+                catalog.Arenas.ContainsKey(checkpointArenaId)
+                    ? checkpointArenaId
+                    : configuration.ArenaId;
+            Arena = catalog.Arenas[arenaId];
+            _waveSet = catalog.WaveSets[Arena.WaveSetId];
+        }
         _runWaves = _waveSet.BossWave is null ? _waveSet.Waves : [.. _waveSet.Waves, _waveSet.BossWave];
         string startingWeaponId = configuration.Checkpoint?.StartingWeaponId is string checkpointWeaponId &&
             catalog.Weapons.ContainsKey(checkpointWeaponId)
@@ -151,7 +212,11 @@ public sealed class GameSimulation : IDisposable
         }
 
         WeaponSetLoadout legacySet = CreateLegacyWeaponSet(EquipmentLoadout, startingWeaponId);
-        WeaponQuickbarLoadout requestedQuickbar = configuration.Checkpoint?.WeaponQuickbar is
+        WeaponQuickbarLoadout requestedQuickbar = adventureCheckpoint?.WeaponQuickbar is
+                { Slots.Count: WeaponQuickbarLoadout.SlotCount } adventureQuickbar &&
+                adventureQuickbar.Slots.Any(slot => !slot.IsEmpty)
+            ? adventureQuickbar
+            : configuration.Checkpoint?.WeaponQuickbar is
                 { Slots.Count: WeaponQuickbarLoadout.SlotCount } checkpointQuickbar &&
                 checkpointQuickbar.Slots.Any(slot => !slot.IsEmpty)
             ? checkpointQuickbar
@@ -187,6 +252,15 @@ public sealed class GameSimulation : IDisposable
                 catalog.Weapons);
         }
 
+        _modifiers = _runDirector?.Modifiers ?? new RunModifiers(catalog.Upgrades.Values, catalog.Weapons);
+        if (adventureCheckpoint is not null)
+        {
+            foreach (string boonId in adventureCheckpoint.BoonIds.Where(catalog.Upgrades.ContainsKey))
+            {
+                _modifiers.Apply(boonId);
+            }
+        }
+
         SetPlayerInvulnerable(configuration.GodModeEnabled);
 
         Player = new PlayerState
@@ -194,9 +268,15 @@ public sealed class GameSimulation : IDisposable
             Id = new EntityId(1),
             Position = Arena.PlayerSpawn,
             PreviousPosition = Arena.PlayerSpawn,
-            MaximumHealth = 100f + (_runDirector?.Modifiers.MaximumHealthBonus ?? 0f),
-            Health = 100f + (_runDirector?.Modifiers.MaximumHealthBonus ?? 0f),
+            MaximumHealth = 100f + _modifiers.MaximumHealthBonus,
+            Health = 100f + _modifiers.MaximumHealthBonus,
         };
+        if (_adventureFloor is { Rooms.Count: > 1 } floor && floor.Rooms[0].Connections.Count > 0)
+        {
+            GeneratedDungeonRoom destination = floor.Rooms[floor.Rooms[0].Connections[0]];
+            Vector3 towardExit = destination.Center - floor.Rooms[0].Center;
+            Player.Yaw = MathF.Atan2(towardExit.X, -towardExit.Z);
+        }
         InitializeWeaponSets(configuration, startingWeapon);
         Player.MaximumHealth += CalculatePermanentMaximumHealthBonus();
         Player.Health = Player.MaximumHealth;
@@ -211,7 +291,7 @@ public sealed class GameSimulation : IDisposable
                     continue;
                 }
 
-                Player.Weapons.Add(new WeaponState(collectedWeapon, _runDirector?.Modifiers));
+                Player.Weapons.Add(new WeaponState(collectedWeapon, _modifiers));
             }
 
             int selectedIndex = Player.Weapons.FindIndex(weapon => weapon.Definition.Id.Equals(
@@ -231,8 +311,26 @@ public sealed class GameSimulation : IDisposable
 
             RestoreCheckpointState(configuration.Checkpoint);
         }
+        else if (adventureCheckpoint is not null)
+        {
+            foreach (WeaponCheckpointState savedState in adventureCheckpoint.WeaponStates)
+            {
+                Player.Weapons.FirstOrDefault(weapon => weapon.Definition.Id.Equals(
+                    savedState.WeaponId, StringComparison.OrdinalIgnoreCase))?.RestoreCheckpointState(savedState);
+            }
+            ElapsedRunSeconds = NonNegativeFinite(adventureCheckpoint.ElapsedRunSeconds);
+            Score = Math.Max(0, adventureCheckpoint.Score);
+            Kills = Math.Max(0, adventureCheckpoint.Kills);
+            DamageTaken = NonNegativeFinite(adventureCheckpoint.DamageTaken);
+            int activeSlot = Math.Clamp(adventureCheckpoint.ActiveWeaponSlotIndex,
+                0, WeaponQuickbarLoadout.SlotCount - 1);
+            if (_weaponSets[activeSlot].RightHand is not null)
+            {
+                ActivateWeaponSet(activeSlot, emitEvent: false);
+            }
+        }
 
-        _emergencyBarrierAvailable = _runDirector?.Modifiers.HasEmergencyBarrier ?? false;
+        _emergencyBarrierAvailable = _modifiers.HasEmergencyBarrier;
 
         foreach (PickupSpawnDefinition spawn in Arena.PickupSpawns)
         {
@@ -274,6 +372,7 @@ public sealed class GameSimulation : IDisposable
     public GamePhase Phase { get; private set; } = GamePhase.Playing;
     public DifficultyMode Difficulty { get; }
     public ThreatTier ThreatTier { get; }
+    public GameMode Mode => _configuration.Mode;
     public PlayerProgressionState Progression { get; }
     public PendingRunProgression PendingProgression => _pendingProgression;
     public PendingWeaponPickupDecision? PendingWeaponPickupDecision => _pendingWeaponPickupDecision;
@@ -331,14 +430,37 @@ public sealed class GameSimulation : IDisposable
             };
         }
     }
+    public AdventureSnapshot? AdventureSnapshot => _adventureDirector?.Snapshot();
+    public AdventureStoryBeatDefinition? AdventureStoryBeat => _adventureDirector?.CurrentStoryBeat;
+    public GeneratedDungeonFloor? GeneratedDungeonFloor => _adventureFloor;
+    public float AdventureStageElapsedSeconds => _adventureStageElapsedSeconds;
+    public GeneratedDungeonInteractable? NearbyAdventureInteractable =>
+        FindNearbyAdventureInteractable(AdventureInteractionRadius);
+    public string? NearbyAdventureBossControlId =>
+        FindNearbyAdventureBossControl(AdventureInteractionRadius)?.Id;
+    public bool HasContextAction =>
+        _adventureDirector?.CurrentStoryBeat is not null ||
+        NearbyAdventureInteractable is { } nearbyInteractable &&
+            CanInteractWithAdventure(nearbyInteractable.Id) ||
+        NearbyAdventureBossControlId is not null ||
+        Pickups.Any(pickup => pickup.IsAvailable && pickup.Type == PickupType.Equipment &&
+            pickup.Equipment is { IsWeapon: false } &&
+            Vector3.DistanceSquared(Player.Position, pickup.Position) <= 16f);
     public EncounterDefinition? CurrentEncounter => _runDirector?.CurrentEncounter;
     public ArenaSectorDefinition? ActiveSector => _runDirector?.CurrentEncounter is { } encounter
         ? _runDirector.SelectedSectors[encounter.SectorNumber - 1]
         : null;
     public UpgradeOffer? CurrentUpgradeOffer => _runDirector?.CurrentOffer;
-    public RunModifiers? RunModifiers => _runDirector?.Modifiers;
+    public RunModifiers RunModifiers => _modifiers;
+    public int RunExperienceEarned => _runExperienceEarned;
+    public int RunLevelsGained => _runLevelsGained;
+    public IReadOnlyDictionary<WeaponFamily, int> RunProficiencyExperience => _runProficiencyExperience;
+    public IReadOnlySet<string> RunAbilitiesMastered => _runAbilitiesMastered;
+    public int RunEquipmentCollected => _runCollectedItemIds.Count;
+    public IReadOnlyDictionary<ItemRarity, int> RunRarityTotals => _runRarityTotals;
+    public int RunHighestItemPower => _runHighestItemPower;
     public RelayObjectiveState? RelayObjective { get; private set; }
-    public int RunSeed => _runDirector?.Seed ?? _configuration.Seed;
+    public int RunSeed => _adventureDirector?.Seed ?? _runDirector?.Seed ?? _configuration.Seed;
     public int EncounterNumber => _runDirector is null ? CurrentWaveIndex + 1 :
         Math.Min(RunDirector.EncounterCount + 1, _runDirector.CurrentEncounterIndex + 1);
     public int CurrentSectorNumber => _runDirector?.CurrentEncounter?.SectorNumber ??
@@ -346,8 +468,7 @@ public sealed class GameSimulation : IDisposable
     public int SectorsCompleted => _runDirector is null ? 0 :
         (_runDirector.CurrentEncounterIndex +
             (_runDirector.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.RewardSelection ? 1 : 0)) / 3;
-    public IReadOnlySet<string> OwnedUpgradeIds => _runDirector?.Modifiers.OwnedUpgradeIds ??
-        NoUpgradeIds;
+    public IReadOnlySet<string> OwnedUpgradeIds => _modifiers.OwnedUpgradeIds;
     public IReadOnlyList<UpgradeDefinition> PendingUpgradeOffers =>
         _runDirector?.CurrentOffer?.Choices ?? [];
     public IReadOnlyList<string> CollectedWeaponIds => Player.Weapons
@@ -453,7 +574,7 @@ public sealed class GameSimulation : IDisposable
             Player.IsAiming = false;
             float previousHealth = Player.Health;
             Player.MaximumHealth = 100f + CalculatePermanentMaximumHealthBonus() +
-                (_runDirector?.Modifiers.MaximumHealthBonus ?? 0f);
+                _modifiers.MaximumHealthBonus;
             Player.Health = Math.Clamp(previousHealth, 0f, Player.MaximumHealth);
             error = null;
             return true;
@@ -486,7 +607,8 @@ public sealed class GameSimulation : IDisposable
     public bool GodModeEnabled { get; private set; }
     public uint Tick { get; private set; }
     public int CurrentWaveIndex { get; private set; }
-    public int TotalWaves => _runDirector is null ? _runWaves.Count : RunDirector.EncounterCount + 1;
+    public int TotalWaves => _adventureDirector is not null ? 4 :
+        _runDirector is null ? _runWaves.Count : RunDirector.EncounterCount + 1;
     public int Score { get; private set; }
     public int Kills { get; private set; }
     public float DamageTaken { get; private set; }
@@ -506,7 +628,9 @@ public sealed class GameSimulation : IDisposable
     public float LastKillSeconds { get; private set; } = 99f;
     public float PlayerDamageFlashSeconds { get; private set; }
     public IReadOnlyList<CombatEvent> CombatEvents => _combatEvents;
-    public bool IsBossWave => _runDirector is null
+    public bool IsBossWave => _adventureDirector is not null
+        ? _adventureDirector.Snapshot().StageKind == AdventureStageKind.Boss
+        : _runDirector is null
         ? CurrentWaveIndex == _runWaves.Count - 1 && _waveSet.BossWave is not null
         : _runDirector.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.BossActive;
     public EnemyState? ActiveBoss => Enemies.FirstOrDefault(enemy => enemy.Definition.IsBoss && !enemy.IsDead);
@@ -550,7 +674,8 @@ public sealed class GameSimulation : IDisposable
             return;
         }
 
-        if (_runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.RewardSelection)
+        if (_runDirector?.Phase == global::FpsFrenzy.Core.Simulation.RunPhase.RewardSelection ||
+            _adventureDirector?.Phase == AdventureRunPhase.FloorReward)
         {
             _previousButtons = command.Buttons;
             return;
@@ -558,6 +683,10 @@ public sealed class GameSimulation : IDisposable
 
         Tick++;
         ElapsedRunSeconds += fixedDeltaSeconds;
+        if (_adventureDirector is not null)
+        {
+            _adventureStageElapsedSeconds += fixedDeltaSeconds;
+        }
         LastShotSeconds += fixedDeltaSeconds;
         LastHitSeconds += fixedDeltaSeconds;
         LastKillSeconds += fixedDeltaSeconds;
@@ -578,6 +707,10 @@ public sealed class GameSimulation : IDisposable
         if (DebugShowcaseActive)
         {
             // The arena lab owns its roster and loot; campaign portals/objectives stay dormant.
+        }
+        else if (_adventureDirector is not null)
+        {
+            UpdateAdventureDirector(command, fixedDeltaSeconds);
         }
         else if (_runDirector is null)
         {
@@ -613,6 +746,7 @@ public sealed class GameSimulation : IDisposable
 
             Phase = GamePhase.Defeat;
             _runDirector?.Fail();
+            _adventureDirector?.MarkDefeated();
             CommitFinalProgression(includeWorldEquipment: false);
         }
 
@@ -1012,6 +1146,21 @@ public sealed class GameSimulation : IDisposable
         Player.IsGrounded = true;
     }
 
+    internal void TeleportPlayerForTesting(Vector3 floorPosition)
+    {
+        Vector3 eyePosition = new(floorPosition.X, PlayerEyeHeight, floorPosition.Z);
+        _playerController.Teleport(eyePosition);
+        Player.Position = eyePosition;
+        Player.PreviousPosition = eyePosition;
+        Player.VerticalVelocity = 0f;
+        Player.IsGrounded = true;
+    }
+
+    internal (bool QueryEnabled, bool PhysicsEnabled, bool NavigationEnabled) GetAdventureGateState(string id) =>
+        (!_disabledStaticColliderIds.Contains(id),
+            _playerController.IsStaticColliderEnabled(id),
+            _navigation.IsObstacleEnabled(id));
+
     /// <summary>
     /// Advances the active campaign stage for the local development harness.
     /// It deliberately uses the normal encounter completion path so reward and boss
@@ -1086,14 +1235,14 @@ public sealed class GameSimulation : IDisposable
         float previousMaximumHealth = Player.MaximumHealth;
         UpgradeDefinition selected = _runDirector.ChooseUpgrade(upgradeId);
         Player.MaximumHealth = 100f + CalculatePermanentMaximumHealthBonus() +
-            _runDirector.Modifiers.MaximumHealthBonus;
+            _modifiers.MaximumHealthBonus;
         if (Player.MaximumHealth > previousMaximumHealth)
         {
             Player.Health = MathF.Min(Player.MaximumHealth,
                 Player.Health + (Player.MaximumHealth - previousMaximumHealth));
         }
 
-        _emergencyBarrierAvailable = _runDirector.Modifiers.HasEmergencyBarrier;
+        _emergencyBarrierAvailable = _modifiers.HasEmergencyBarrier;
         if (CommitPendingProgression())
         {
             AddEvent(CombatEventType.ProgressionCommitted, Player.Position, Player.Position,
@@ -1332,7 +1481,7 @@ public sealed class GameSimulation : IDisposable
         }
         if (_weaponSets.All(set => set.RightHand is null))
         {
-            WeaponState fallback = new(startingWeapon, _runDirector?.Modifiers);
+            WeaponState fallback = new(startingWeapon, _modifiers);
             Player.Weapons.Add(fallback);
             int fallbackSlot = startingWeapon.Family == WeaponFamily.None
                 ? 0
@@ -1423,7 +1572,7 @@ public sealed class GameSimulation : IDisposable
             return existing;
         }
 
-        WeaponState state = new(weapon, _runDirector?.Modifiers);
+        WeaponState state = new(weapon, _modifiers);
         ApplyPersistentWeaponStats(state, item, refill: true);
         _weaponStatesByItemId[itemId] = state;
         Player.Weapons.Add(state);
@@ -1543,6 +1692,73 @@ public sealed class GameSimulation : IDisposable
         };
     }
 
+    public AdventureCheckpoint? CreateAdventureCheckpoint()
+    {
+        if (_adventureDirector is null)
+        {
+            return null;
+        }
+
+        AdventureCheckpoint checkpoint = _adventureDirector.CreateEntryCheckpoint(
+            Difficulty, ThreatTier, GodModeEnabled,
+            _adventureFloor?.FloorIndex == _adventureDirector.StageIndex ? _adventureFloor.LayoutHash : null);
+        return checkpoint with
+        {
+            ElapsedRunSeconds = ElapsedRunSeconds,
+            Score = Score,
+            Kills = Kills,
+            DamageTaken = DamageTaken,
+            EquipmentLoadout = EquipmentLoadout.Clone(),
+            EquipmentItems = _equipmentItems.Values.OrderBy(item => item.Id, StringComparer.OrdinalIgnoreCase).ToList(),
+            WeaponSetA = WeaponSetA.Clone(),
+            WeaponSetB = WeaponSetB.Clone(),
+            ActiveWeaponSetIndex = ActiveWeaponSetIndex,
+            WeaponQuickbar = WeaponQuickbar.Clone(),
+            ActiveWeaponSlotIndex = ActiveWeaponSlotIndex,
+            WeaponSetStates = CreateWeaponSetCheckpointStates(),
+            WeaponStates = Player.Weapons.Select(weapon => weapon.CreateCheckpointState()).ToList(),
+            CommittedProgression = CreatePendingProgression(0),
+            CommittedRewardItemIds = Progression.CommittedRewardIds
+                .Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            RunExperienceEarned = _runExperienceEarned,
+            RunLevelsGained = _runLevelsGained,
+            RunProficiencyExperience = new Dictionary<WeaponFamily, int>(_runProficiencyExperience),
+            RunAbilitiesMastered = _runAbilitiesMastered.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            RunCollectedItemIds = _runCollectedItemIds.Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            RunRarityTotals = new Dictionary<ItemRarity, int>(_runRarityTotals),
+            RunHighestItemPower = _runHighestItemPower,
+        };
+    }
+
+    public AdventureCheckpoint ChooseAdventureBoon(string boonId)
+    {
+        if (_adventureDirector is null || _adventureDirector.Phase != AdventureRunPhase.FloorReward)
+        {
+            throw new InvalidOperationException("The Adventure run is not awaiting a floor boon.");
+        }
+
+        if (!_catalog.Upgrades.ContainsKey(boonId) || !_adventureDirector.SelectFloorBoon(boonId))
+        {
+            throw new ArgumentException($"Adventure boon '{boonId}' is not selectable.", nameof(boonId));
+        }
+
+        _recoveryCache.TakeAll(_pendingProgression);
+        CommitPendingProgression();
+        _pendingProgression = CreatePendingProgression(_adventureDirector.StageIndex);
+        float previousMaximumHealth = Player.MaximumHealth;
+        _modifiers.Apply(boonId);
+        Player.MaximumHealth = 100f + CalculatePermanentMaximumHealthBonus() +
+            _modifiers.MaximumHealthBonus;
+        if (Player.MaximumHealth > previousMaximumHealth)
+        {
+            Player.Health = MathF.Min(Player.MaximumHealth,
+                Player.Health + (Player.MaximumHealth - previousMaximumHealth));
+        }
+        _emergencyBarrierAvailable |= _modifiers.HasEmergencyBarrier;
+
+        return CreateAdventureCheckpoint()!;
+    }
+
     private Dictionary<EquipmentSlot, WeaponCheckpointState> CreateHandWeaponCheckpointStates()
     {
         Dictionary<EquipmentSlot, WeaponCheckpointState> states = [];
@@ -1607,7 +1823,7 @@ public sealed class GameSimulation : IDisposable
         float nearestFraction = 1f;
         foreach (ArenaPrimitiveDefinition primitive in Arena.Primitives)
         {
-            if (primitive.HasCollision &&
+            if (!_disabledStaticColliderIds.Contains(primitive.Id) && primitive.HasCollision &&
                 SegmentIntersectsBox(Player.Position, desired, primitive, out float fraction))
             {
                 nearestFraction = MathF.Min(nearestFraction, fraction);
@@ -1640,7 +1856,7 @@ public sealed class GameSimulation : IDisposable
         Vector3 forward = new(MathF.Sin(Player.Yaw), 0f, -MathF.Cos(Player.Yaw));
         Vector3 right = new(MathF.Cos(Player.Yaw), 0f, MathF.Sin(Player.Yaw));
         float movementMultiplier = Player.AdrenalSeconds > 0f
-            ? _runDirector?.Modifiers.KillMovementSpeedMultiplier ?? 1f
+            ? _modifiers.KillMovementSpeedMultiplier
             : 1f;
         Vector3 desiredVelocity = ((right * moveInput.X) + (forward * moveInput.Y)) *
             PlayerMoveSpeed * CalculatePermanentMovementMultiplier() * movementMultiplier;
@@ -2219,7 +2435,7 @@ public sealed class GameSimulation : IDisposable
             float pelletDamageScale = splitShot ? 0.45f : 1f;
             for (int pellet = 0; pellet < pelletCount; pellet++)
             {
-                float spreadMultiplier = _runDirector?.Modifiers.SpreadMultiplier(weapon.Definition.Id) ?? 1f;
+                float spreadMultiplier = _modifiers.SpreadMultiplier(weapon.Definition.Id);
                 spreadMultiplier *= dualWielding ? 1f + (0.2f * CalculateDualWieldPenaltyScale()) : 1f;
                 spreadMultiplier *= CalculatePersistentStabilityMultiplier(isLeftHand);
                 Vector3 pelletDirection = ApplySpread(direction,
@@ -2233,7 +2449,7 @@ public sealed class GameSimulation : IDisposable
             Vector3 aimPoint = Player.Position + (direction * weapon.Definition.Range);
             Vector3 projectileDirection = Vector3.Normalize(aimPoint - muzzle);
             float projectileSpeed = weapon.Definition.ProjectileSpeed *
-                (_runDirector?.Modifiers.ProjectileSpeedMultiplier(weapon.Definition.Id) ?? 1f);
+                _modifiers.ProjectileSpeedMultiplier(weapon.Definition.Id);
             float lifetimeSeconds = weapon.Definition.Range / MathF.Max(1f, projectileSpeed);
             Projectiles.Add(new ProjectileState
             {
@@ -2250,11 +2466,11 @@ public sealed class GameSimulation : IDisposable
                 Motion = weapon.Definition.ProjectileMotion,
                 WeakPointMultiplier = weapon.Definition.WeakPointMultiplier,
                 SplashRadius = weapon.Definition.SplashRadius *
-                    (_runDirector?.Modifiers.SplashRadiusMultiplier(weapon.Definition.Id) ?? 1f),
+                    _modifiers.SplashRadiusMultiplier(weapon.Definition.Id),
                 ChainRadius = weapon.Definition.ChainRadius *
-                    (_runDirector?.Modifiers.ChainRadiusMultiplier(weapon.Definition.Id) ?? 1f),
+                    _modifiers.ChainRadiusMultiplier(weapon.Definition.Id),
                 ChainTargets = weapon.Definition.ChainTargets +
-                    (_runDirector?.Modifiers.ChainTargetBonus(weapon.Definition.Id) ?? 0),
+                    _modifiers.ChainTargetBonus(weapon.Definition.Id),
                 Color = weapon.Definition.ProjectileColor,
                 InitialLifetimeSeconds = lifetimeSeconds,
                 RemainingSeconds = lifetimeSeconds,
@@ -2272,7 +2488,7 @@ public sealed class GameSimulation : IDisposable
         float nearestArenaDistance = weapon.Range;
         foreach (ArenaPrimitiveDefinition primitive in Arena.Primitives)
         {
-            if (!primitive.HasCollision)
+            if (_disabledStaticColliderIds.Contains(primitive.Id) || !primitive.HasCollision)
             {
                 continue;
             }
@@ -2305,7 +2521,7 @@ public sealed class GameSimulation : IDisposable
         if (hit is not null)
         {
             float multiplier = CalculateDamageFalloff(weapon, nearestEnemyDistance);
-            multiplier *= _runDirector?.Modifiers.DamageMultiplier(weapon.Id, nearestEnemyDistance) ?? 1f;
+            multiplier *= _modifiers.DamageMultiplier(weapon.Id, nearestEnemyDistance);
             Vector3 impact = origin + (direction * nearestEnemyDistance);
             float damage = weapon.Damage * persistentDamageMultiplier * multiplier;
             if (hitWeakPoint)
@@ -2398,6 +2614,361 @@ public sealed class GameSimulation : IDisposable
         Vector3 center = enemy.Position + new Vector3(0f, enemy.Definition.ColliderHeight * 0.35f, 0f);
         weakPoint = false;
         return RayIntersectsSphere(origin, direction, center, enemy.Definition.ColliderRadius, out distance);
+    }
+
+    private void UpdateAdventureDirector(PlayerCommand command, float deltaSeconds)
+    {
+        if (_adventureDirector is null)
+        {
+            return;
+        }
+
+        if (_adventureDirector.Snapshot().StageKind == AdventureStageKind.Boss)
+        {
+            UpdateAdventureBoss(command, deltaSeconds);
+            return;
+        }
+
+        if (_adventureFloor is null || _adventureDirector.Phase != AdventureRunPhase.Exploring)
+        {
+            return;
+        }
+
+        float mapOriginX = -DungeonGenerator.GridWidth * DungeonGenerator.CellSize * 0.5f;
+        float mapOriginZ = -DungeonGenerator.GridDepth * DungeonGenerator.CellSize * 0.5f;
+        _adventureDirector.DiscoverMapCell(new DungeonGridCell(
+            (int)MathF.Floor((Player.Position.X - mapOriginX) / DungeonGenerator.CellSize),
+            (int)MathF.Floor((Player.Position.Z - mapOriginZ) / DungeonGenerator.CellSize)));
+        int currentRoom = FindAdventureRoom(Player.Position);
+        if (currentRoom >= 0)
+        {
+            _adventureDirector.DiscoverRoom(currentRoom);
+        }
+
+        if (Enemies.All(enemy => enemy.IsDead))
+        {
+            foreach (string groupId in _adventureDirector.Snapshot().AlertedGroups.ToArray())
+            {
+                _adventureDirector.ClearAlertedGroup(groupId);
+            }
+        }
+
+        foreach (GeneratedDungeonEnemyGroup group in _adventureFloor.EnemyGroups
+            .Where(group => !_spawnedAdventureGroups.Contains(group.Id))
+            .OrderBy(group => Vector3.DistanceSquared(Player.Position, group.SpawnCenter)))
+        {
+            float alertRange = group.Dormant ? 14f : 20f;
+            if (Vector3.DistanceSquared(Player.Position, group.SpawnCenter) > alertRange * alertRange ||
+                !HasAdventureLineOfSight(Player.Position, group.SpawnCenter) ||
+                !_adventureDirector.TryAlertGroup(group.Id))
+            {
+                continue;
+            }
+
+            SpawnAdventureGroup(group);
+        }
+
+        bool interactPressed = command.Has(PlayerButtons.Interact) &&
+            !_previousButtons.HasFlag(PlayerButtons.Interact);
+        if (interactPressed && _adventureDirector.CurrentStoryBeat is not null)
+        {
+            _adventureDirector.AdvanceStory();
+        }
+        if (interactPressed)
+        {
+            GeneratedDungeonInteractable? nearest = FindNearbyAdventureInteractable(AdventureInteractionRadius);
+            if (nearest is not null && _adventureDirector.TryInteract(nearest.Id))
+            {
+                AddEvent(CombatEventType.EncounterCompleted, nearest.Position, Player.Position,
+                    EntityId.None, Player.Id, nearest.Id);
+                if (nearest.Kind == AdventureInteractableKind.EquipmentCache)
+                {
+                    OpenAdventureChest(nearest);
+                }
+                UnlockCompletedAdventureGates();
+                if (nearest.ObjectiveId is not null)
+                {
+                    GeneratedDungeonEnemyGroup? ambush = _adventureFloor.EnemyGroups
+                        .Where(group => !_spawnedAdventureGroups.Contains(group.Id))
+                        .OrderBy(group => Vector3.DistanceSquared(nearest.Position, group.SpawnCenter))
+                        .FirstOrDefault();
+                    if (ambush is not null && _adventureDirector.TryAlertGroup(ambush.Id))
+                    {
+                        SpawnAdventureGroup(ambush);
+                    }
+                }
+            }
+        }
+
+        foreach (GeneratedDungeonHazard hazard in _adventureFloor.Hazards)
+        {
+            float cycle = hazard.ActiveSeconds + hazard.InactiveSeconds;
+            bool active = ((ElapsedRunSeconds + hazard.PhaseOffsetSeconds) % cycle) < hazard.ActiveSeconds;
+            if (!active || MathF.Abs(Player.Position.X - hazard.Position.X) > hazard.Size.X * 0.5f ||
+                MathF.Abs(Player.Position.Z - hazard.Position.Z) > hazard.Size.Z * 0.5f)
+            {
+                continue;
+            }
+
+            DamagePlayer(18f * deltaSeconds, EntityId.None, hazard.Position,
+                $"adventure-hazard:{hazard.Kind}");
+        }
+    }
+
+    public bool CanInteractWithAdventure(string interactableId) =>
+        _adventureDirector?.CanInteract(interactableId) == true;
+
+    private GeneratedDungeonInteractable? FindNearbyAdventureInteractable(float maximumDistance)
+    {
+        if (_adventureFloor is null || _adventureDirector is null ||
+            _adventureDirector.Phase != AdventureRunPhase.Exploring)
+        {
+            return null;
+        }
+
+        AdventureSnapshot snapshot = _adventureDirector.Snapshot();
+        float maximumDistanceSquared = maximumDistance * maximumDistance;
+        return _adventureFloor.Interactables
+            .Where(item => !snapshot.CompletedInteractables.Contains(item.Id) &&
+                Vector3.DistanceSquared(Player.Position, item.Position) <= maximumDistanceSquared)
+            .OrderBy(item => _adventureDirector.CanInteract(item.Id) ? 0 : 1)
+            .ThenBy(item => Vector3.DistanceSquared(Player.Position, item.Position))
+            .ThenBy(item => item.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
+    private void OpenAdventureChest(GeneratedDungeonInteractable chest)
+    {
+        if (_adventureFloor is null)
+        {
+            return;
+        }
+
+        int chestIndex = Math.Max(0, _adventureFloor.Interactables.FindIndex(item =>
+            item.Id.Equals(chest.Id, StringComparison.OrdinalIgnoreCase)));
+        List<WeaponFamily> missingFamilies = WeaponQuickbarLoadout.FamilyOrder
+            .Where(family => _weaponSets[WeaponQuickbarLoadout.SlotForFamily(family)].RightHand is null)
+            .ToList();
+        if (missingFamilies.Count > 1)
+        {
+            int rotation = (int)((uint)(RunSeed ^ (chestIndex * 7919)) % (uint)missingFamilies.Count);
+            missingFamilies = missingFamilies.Skip(rotation).Concat(missingFamilies.Take(rotation)).ToList();
+        }
+
+        const int lootCount = 3;
+        int guaranteedMissingWeapons = Math.Min(2, missingFamilies.Count);
+        for (int index = 0; index < lootCount; index++)
+        {
+            WeaponFamily? requiredFamily = null;
+            if (index < guaranteedMissingWeapons)
+            {
+                requiredFamily = missingFamilies[index];
+            }
+            else
+            {
+                float weaponChance = missingFamilies.Count > guaranteedMissingWeapons ? 0.75f : 0.55f;
+                if (index == 0 || NextRandomSingle() < weaponChance)
+                {
+                    WeaponFamily[] candidates = missingFamilies.Skip(guaranteedMissingWeapons).ToArray();
+                    if (candidates.Length == 0)
+                    {
+                        candidates = WeaponQuickbarLoadout.FamilyOrder.ToArray();
+                    }
+                    requiredFamily = candidates[(int)((uint)(RunSeed + chestIndex * 31 + index * 17) %
+                        (uint)candidates.Length)];
+                }
+            }
+
+            int sourceEntity = -20_000 - (_adventureFloor.FloorIndex * 100) - (chestIndex * 10) - index;
+            EquipmentInstance item = GenerateLoot(sourceEntity,
+                index == 0 ? ItemRarity.Uncommon : null, requiredFamily);
+            float angle = index * MathF.Tau / lootCount;
+            Vector3 offset = new(MathF.Cos(angle) * 1.15f, 0f, MathF.Sin(angle) * 1.15f);
+            AddEquipmentDrop(item, chest.Position + offset);
+        }
+
+        AddEvent(CombatEventType.RecoveryCacheOpened, chest.Position, Player.Position,
+            EntityId.None, Player.Id, chest.Id, lootCount);
+    }
+
+    private void UpdateAdventureBoss(PlayerCommand command, float deltaSeconds)
+    {
+        if (_adventureDirector is null)
+        {
+            return;
+        }
+
+        if (!_generatedBossStarted)
+        {
+            SpawnEnemyAt("core-warden", Arena.BossArenaAnchor, isElite: false);
+            _generatedBossStarted = true;
+            AddEvent(CombatEventType.EncounterStarted, Arena.BossArenaAnchor, Player.Position,
+                EntityId.None, Player.Id, "core-warden");
+        }
+
+        bool interactPressed = command.Has(PlayerButtons.Interact) &&
+            !_previousButtons.HasFlag(PlayerButtons.Interact);
+        if (interactPressed && _adventureDirector.CurrentStoryBeat is not null)
+        {
+            _adventureDirector.AdvanceStory();
+        }
+
+        if (_adventureDirector.Phase == AdventureRunPhase.BossLocked)
+        {
+            if (!interactPressed)
+            {
+                return;
+            }
+
+            (string Id, Vector3 Position)? nearest =
+                FindNearbyAdventureBossControl(AdventureInteractionRadius);
+            if (nearest is { } control && _adventureDirector.TryDisableBossShieldControl(control.Id))
+            {
+                AddEvent(CombatEventType.EncounterCompleted, control.Position, Player.Position,
+                    EntityId.None, Player.Id, control.Id);
+            }
+        }
+
+        if (_adventureDirector.Phase == AdventureRunPhase.BossActive && _generatedBossStarted &&
+            ActiveBoss is null && _adventureDirector.NotifyBossDefeated())
+        {
+            UnlockNextThreatTier();
+            CommitFinalProgression(includeWorldEquipment: true);
+            Score += (int)(Player.Health * 10f);
+            Phase = GamePhase.Victory;
+        }
+
+        if (_adventureDirector.Phase == AdventureRunPhase.BossActive &&
+            ActiveBoss is { CurrentBossPhaseIndex: >= 2 })
+        {
+            UpdateNullCascadeHazards(deltaSeconds);
+        }
+    }
+
+    private (string Id, Vector3 Position)? FindNearbyAdventureBossControl(float maximumDistance)
+    {
+        if (_adventureDirector?.Phase != AdventureRunPhase.BossLocked)
+        {
+            return null;
+        }
+
+        AdventureSnapshot snapshot = _adventureDirector.Snapshot();
+        float maximumDistanceSquared = maximumDistance * maximumDistance;
+        return new (string Id, Vector3 Position)[]
+            {
+                ("core-shield-west", new Vector3(-10f, PlayerEyeHeight, 0f)),
+                ("core-shield-east", new Vector3(10f, PlayerEyeHeight, 0f)),
+            }
+            .Where(control => !snapshot.CompletedInteractables.Contains(control.Id) &&
+                Vector3.DistanceSquared(Player.Position, control.Position) <= maximumDistanceSquared)
+            .OrderBy(control => Vector3.DistanceSquared(Player.Position, control.Position))
+            .FirstOrDefault() is { Id: not null } nearest
+                ? nearest
+                : null;
+    }
+
+    private void UpdateNullCascadeHazards(float deltaSeconds)
+    {
+        Vector3[] pads =
+        [
+            new(-7f, 0.04f, -6f), new(7f, 0.04f, -6f),
+            new(7f, 0.04f, 6f), new(-7f, 0.04f, 6f),
+        ];
+        int activePad = (int)(ElapsedRunSeconds / 1.25f) % pads.Length;
+        Vector3 pad = pads[activePad];
+        if (MathF.Abs(Player.Position.X - pad.X) <= 3f && MathF.Abs(Player.Position.Z - pad.Z) <= 3f)
+        {
+            DamagePlayer(24f * deltaSeconds, EntityId.None, pad, "adventure-hazard:SignalSurgePads");
+        }
+    }
+
+    private void SpawnAdventureGroup(GeneratedDungeonEnemyGroup group)
+    {
+        int ordinal = 0;
+        foreach (SpawnGroupDefinition member in group.Members)
+        {
+            for (int count = 0; count < member.Count; count++)
+            {
+                float angle = ordinal * 2.3999632f;
+                Vector3 position = group.SpawnCenter + new Vector3(
+                    MathF.Cos(angle) * (1.2f + (ordinal % 2)),
+                    0f,
+                    MathF.Sin(angle) * (1.2f + (ordinal % 2)));
+                if (!_navigation.IsWalkable(position))
+                {
+                    position = group.SpawnCenter;
+                }
+                EnemyState enemy = SpawnEnemyAt(member.EnemyId, position, isElite: false);
+                AddEvent(CombatEventType.EnemySpawned, position, Player.Position,
+                    enemy.Id, Player.Id, group.Id);
+                ordinal++;
+            }
+        }
+        _spawnedAdventureGroups.Add(group.Id);
+    }
+
+    private int FindAdventureRoom(Vector3 position)
+    {
+        if (_adventureFloor is null)
+        {
+            return -1;
+        }
+
+        float originX = -DungeonGenerator.GridWidth * DungeonGenerator.CellSize * 0.5f;
+        float originZ = -DungeonGenerator.GridDepth * DungeonGenerator.CellSize * 0.5f;
+        int gridX = (int)MathF.Floor((position.X - originX) / DungeonGenerator.CellSize);
+        int gridZ = (int)MathF.Floor((position.Z - originZ) / DungeonGenerator.CellSize);
+        return _adventureFloor.Rooms.FirstOrDefault(room =>
+            gridX >= room.GridX && gridX < room.GridX + room.GridWidth &&
+            gridZ >= room.GridZ && gridZ < room.GridZ + room.GridDepth)?.Index ?? -1;
+    }
+
+    private void UnlockCompletedAdventureGates()
+    {
+        if (_adventureFloor is null || _adventureDirector is null)
+        {
+            return;
+        }
+
+        AdventureSnapshot snapshot = _adventureDirector.Snapshot();
+        foreach (GeneratedDungeonGate gate in _adventureFloor.Gates)
+        {
+            bool unlocked = gate.UnlockObjectiveId is null || snapshot.Objectives.Any(objective =>
+                objective.Id.Equals(gate.UnlockObjectiveId, StringComparison.OrdinalIgnoreCase) &&
+                objective.Complete);
+            if (!unlocked || !_disabledStaticColliderIds.Add(gate.Id))
+            {
+                continue;
+            }
+
+            _playerController.SetStaticColliderEnabled(gate.Id, enabled: false);
+            _navigation.SetObstacleEnabled(gate.Id, enabled: false);
+        }
+    }
+
+    private bool HasAdventureLineOfSight(Vector3 origin, Vector3 target)
+    {
+        Vector3 segment = target - origin;
+        float length = segment.Length();
+        if (length <= 0.001f)
+        {
+            return true;
+        }
+
+        Vector3 direction = segment / length;
+        foreach (ArenaPrimitiveDefinition primitive in Arena.Primitives)
+        {
+            if (!primitive.HasCollision || _disabledStaticColliderIds.Contains(primitive.Id) ||
+                primitive.CollisionRole == ArenaCollisionRole.Floor)
+            {
+                continue;
+            }
+            if (RayIntersectsBox(origin, direction, primitive, out float distance) && distance < length)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void UpdateRunDirector(float deltaSeconds)
@@ -2538,7 +3109,7 @@ public sealed class GameSimulation : IDisposable
         _generatedWaveBreakActive = false;
         PendingEnemySpawns.Clear();
         _eliteTargetId = EntityId.None;
-        _emergencyBarrierAvailable = _runDirector.Modifiers.HasEmergencyBarrier;
+        _emergencyBarrierAvailable = _modifiers.HasEmergencyBarrier;
         ArenaSectorDefinition sector = _runDirector.SelectedSectors[encounter.SectorNumber - 1];
         Vector3 entryPoint = new(
             sector.EntryPoint.X,
@@ -3013,7 +3584,7 @@ public sealed class GameSimulation : IDisposable
         RelayObjective = null;
         Score += 500 * (_runDirector!.CurrentEncounterIndex + 1);
         Player.Health = MathF.Min(Player.MaximumHealth,
-            Player.Health + _runDirector.Modifiers.EncounterHealing);
+            Player.Health + _modifiers.EncounterHealing);
         while (_guaranteedWeaponFamilies.TryDequeue(out WeaponFamily family))
         {
             EquipmentInstance item = GenerateLoot(-7_000 - _lootDropSerial, requiredWeaponFamily: family);
@@ -3382,6 +3953,15 @@ public sealed class GameSimulation : IDisposable
             {
                 enemy.ActionState = EnemyActionState.Death;
                 enemy.DeathSeconds += deltaSeconds;
+                continue;
+            }
+
+            if (enemy.Definition.Id.Equals("core-warden", StringComparison.OrdinalIgnoreCase) &&
+                _adventureDirector?.BossInvulnerable == true)
+            {
+                enemy.ActionState = EnemyActionState.Idle;
+                enemy.PendingAttackKind = EnemyAttackKind.None;
+                enemy.AttackAnimationSeconds = 0f;
                 continue;
             }
 
@@ -3760,6 +4340,20 @@ public sealed class GameSimulation : IDisposable
     private void UpdateBoss(EnemyState enemy, Vector3 toPlayer, float distance, float deltaSeconds)
     {
         BossPhaseDefinition phase = enemy.Definition.BossPhases[enemy.CurrentBossPhaseIndex];
+        if (enemy.Definition.Id.Equals("core-warden", StringComparison.OrdinalIgnoreCase) &&
+            enemy.CurrentBossPhaseIndex >= 1)
+        {
+            UpdateCharger(enemy, toPlayer, distance, deltaSeconds,
+                phase.MoveSpeedMultiplier, phase.DamageMultiplier);
+            if (distance > enemy.Definition.ChargeRange && enemy.AttackCooldownSeconds <= 0f)
+            {
+                int bolts = enemy.CurrentBossPhaseIndex >= 2 ? 7 : 3;
+                float spread = enemy.CurrentBossPhaseIndex >= 2 ? 12f : 7f;
+                BeginBossVolley(enemy, bolts, spread, phase);
+            }
+            return;
+        }
+
         if (enemy.CurrentBossPhaseIndex >= 2)
         {
             UpdateCharger(enemy, toPlayer, distance, deltaSeconds,
@@ -4266,7 +4860,7 @@ public sealed class GameSimulation : IDisposable
 
             foreach (ArenaPrimitiveDefinition primitive in Arena.Primitives)
             {
-                if (!primitive.HasCollision)
+                if (_disabledStaticColliderIds.Contains(primitive.Id) || !primitive.HasCollision)
                 {
                     continue;
                 }
@@ -4401,9 +4995,9 @@ public sealed class GameSimulation : IDisposable
                 }
 
                 float multiplier = 1f - (0.65f * Math.Clamp(distance / projectile.SplashRadius, 0f, 1f));
-                float runMultiplier = _runDirector?.Modifiers.DamageMultiplier(
+                float runMultiplier = _modifiers.DamageMultiplier(
                     projectile.WeaponId ?? string.Empty,
-                    Vector3.Distance(projectile.Origin, enemy.Position)) ?? 1f;
+                    Vector3.Distance(projectile.Origin, enemy.Position));
                 DamageEnemy(enemy, projectile.Damage * multiplier * runMultiplier,
                     projectile.Position, Player.Id, projectile.WeaponId);
                 ApplyWeaponControl(enemy, projectile.BehaviorFlags, projectile.Position,
@@ -4415,9 +5009,9 @@ public sealed class GameSimulation : IDisposable
         }
         else if (directEnemy is not null)
         {
-            float runMultiplier = _runDirector?.Modifiers.DamageMultiplier(
+            float runMultiplier = _modifiers.DamageMultiplier(
                 projectile.WeaponId ?? string.Empty,
-                Vector3.Distance(projectile.Origin, directEnemy.Position)) ?? 1f;
+                Vector3.Distance(projectile.Origin, directEnemy.Position));
             float directDamage = projectile.Damage * runMultiplier *
                 (directWeakPoint ? projectile.WeakPointMultiplier : 1f);
             DamageEnemy(directEnemy, directDamage,
@@ -4469,9 +5063,9 @@ public sealed class GameSimulation : IDisposable
                 break;
             }
 
-            float runMultiplier = _runDirector?.Modifiers.DamageMultiplier(
+            float runMultiplier = _modifiers.DamageMultiplier(
                 projectile.WeaponId ?? string.Empty,
-                Vector3.Distance(projectile.Origin, next.Position)) ?? 1f;
+                Vector3.Distance(projectile.Origin, next.Position));
             float damage = projectile.Damage * runMultiplier * MathF.Pow(0.68f, chain + 1);
             DamageEnemy(next, damage, next.Position, Player.Id, projectile.WeaponId);
             ApplyWeaponControl(next, projectile.BehaviorFlags, chainOrigin,
@@ -4490,7 +5084,9 @@ public sealed class GameSimulation : IDisposable
         EntityId sourceId,
         string? weaponId)
     {
-        if (enemy.IsDead)
+        if (enemy.IsDead ||
+            (enemy.Definition.Id.Equals("core-warden", StringComparison.OrdinalIgnoreCase) &&
+             _adventureDirector?.BossInvulnerable == true))
         {
             return;
         }
@@ -4540,7 +5136,7 @@ public sealed class GameSimulation : IDisposable
             }
         }
 
-        if ((_runDirector?.Modifiers.KillMovementSpeedMultiplier ?? 1f) > 1f)
+        if (_modifiers.KillMovementSpeedMultiplier > 1f)
         {
             Player.AdrenalSeconds = 3f;
         }
@@ -4549,12 +5145,16 @@ public sealed class GameSimulation : IDisposable
         Score += enemy.Definition.ScoreValue;
         AddEvent(CombatEventType.EnemyKilled, impactPosition, enemy.Position,
             sourceId, enemy.Id, weaponId, enemy.Definition.ScoreValue, killDistance);
+        float healthDropChance = DifficultyCatalog.ScaleHealthDropChance(
+            Difficulty, enemy.Definition.HealthDropChance);
+        float ammoDropChance = DifficultyCatalog.ScaleAmmoDropChance(
+            Difficulty, healthDropChance, enemy.Definition.AmmoDropChance);
         float roll = NextRandomSingle();
-        if (roll < enemy.Definition.HealthDropChance)
+        if (roll < healthDropChance)
         {
             AddDroppedPickup(PickupType.Health, enemy.Position, 20);
         }
-        else if (roll < enemy.Definition.HealthDropChance + enemy.Definition.AmmoDropChance)
+        else if (roll < healthDropChance + ammoDropChance)
         {
             AddDroppedPickup(PickupType.Ammo, enemy.Position, 16);
         }
@@ -4638,7 +5238,8 @@ public sealed class GameSimulation : IDisposable
         WeaponFamily? requiredWeaponFamily = null) =>
         LootGenerator.Generate(RunSeed, Tick, sourceEntity, _lootDropSerial++, ThreatTier,
             _catalog, Progression.Proficiencies, minimumRarity,
-            CalculateRewardMultiplier(AffixEffectType.RarityLuck, maximumBonus: 1f) - 1f,
+            CalculateRewardMultiplier(AffixEffectType.RarityLuck, maximumBonus: 1f) - 1f +
+                DifficultyCatalog.Get(Difficulty).RarityLuckBonus,
             requiredWeaponFamily);
 
     private void AddEquipmentDrop(EquipmentInstance item, Vector3 position)
@@ -4680,7 +5281,7 @@ public sealed class GameSimulation : IDisposable
     {
         bool interactPressed = command.Has(PlayerButtons.Interact) &&
             !_previousButtons.HasFlag(PlayerButtons.Interact);
-        float pickupRadius = 1.2f * (_runDirector?.Modifiers.PickupRadiusMultiplier ?? 1f) *
+        float pickupRadius = 1.2f * _modifiers.PickupRadiusMultiplier *
             CalculateRewardMultiplier(AffixEffectType.PickupRadius, maximumBonus: 1f);
         Vector2 playerPosition = new(Player.Position.X, Player.Position.Z);
 
@@ -4757,7 +5358,11 @@ public sealed class GameSimulation : IDisposable
             }
 
             int pickupAmount = Math.Max(1, (int)MathF.Round(
-                pickup.Amount * (_runDirector?.Modifiers.PickupAmountMultiplier ?? 1f)));
+                pickup.Amount * _modifiers.PickupAmountMultiplier));
+            if (pickup.Type is PickupType.Health or PickupType.Ammo)
+            {
+                pickupAmount = DifficultyCatalog.ScaleSupplyAmount(Difficulty, pickupAmount);
+            }
             bool consumed = pickup.Type switch
             {
                 PickupType.Health => TryApplyHealth(pickupAmount),
@@ -4882,7 +5487,7 @@ public sealed class GameSimulation : IDisposable
             return true;
         }
 
-        Player.Weapons.Add(new WeaponState(definition, _runDirector?.Modifiers));
+        Player.Weapons.Add(new WeaponState(definition, _modifiers));
         Player.SelectedWeaponIndex = Player.Weapons.Count - 1;
         return true;
     }
@@ -4899,7 +5504,7 @@ public sealed class GameSimulation : IDisposable
             damage * RpgProgressionMath.EnemyDamageMultiplier(ThreatTier) *
             DifficultyCatalog.Get(Difficulty).EnemyDamageMultiplier *
             CalculatePermanentDamageMultiplier() *
-            (_runDirector?.Modifiers.IncomingDamageMultiplier ?? 1f));
+            _modifiers.IncomingDamageMultiplier);
         if (appliedDamage <= 0f)
         {
             return;
@@ -4989,7 +5594,7 @@ public sealed class GameSimulation : IDisposable
     {
         float falloffStart = MathF.Min(
             weapon.Range,
-            weapon.DamageFalloffStart * (_runDirector?.Modifiers.FalloffStartMultiplier(weapon.Id) ?? 1f));
+            weapon.DamageFalloffStart * _modifiers.FalloffStartMultiplier(weapon.Id));
         if (falloffStart <= 0f || distance <= falloffStart || weapon.Range <= falloffStart)
         {
             return 1f;
@@ -5000,6 +5605,97 @@ public sealed class GameSimulation : IDisposable
             0f,
             1f);
         return float.Lerp(1f, weapon.MinimumDamageMultiplier, normalized);
+    }
+
+    private static ArenaDefinition CreateAdventureBossArena(string arenaId, int seed)
+    {
+        ArenaDefinition arena = new()
+        {
+        SchemaVersion = 1,
+        Id = arenaId,
+        DisplayName = "Signal Core Chamber",
+        WaveSetId = "adventure-runtime",
+        BoundsMin = new Vector3(-20f, -0.2f, -16f),
+        BoundsMax = new Vector3(20f, 5f, 16f),
+        PlayerSpawn = new Vector3(0f, PlayerEyeHeight, 12f),
+        SkyColor = new Vector3(0.01f, 0.025f, 0.04f),
+        FogColor = new Vector3(0.08f, 0.025f, 0.12f),
+        FogStart = 18f,
+        FogEnd = 50f,
+        NavigationCellSize = 0.5f,
+        TraversalMode = ArenaTraversalMode.OpenArena,
+        EnemySpawns =
+        [
+            new Vector3(-12f, 0f, -8f), new Vector3(12f, 0f, -8f),
+            new Vector3(-12f, 0f, 8f), new Vector3(12f, 0f, 8f),
+        ],
+        Primitives =
+        [
+            new ArenaPrimitiveDefinition
+            {
+                Id = "floor", Position = new Vector3(0f, -0.1f, 0f), Size = new Vector3(40f, 0.2f, 32f),
+                Color = new Vector3(0.09f, 0.08f, 0.16f), TextureAsset = "Textures/Arena/floor-panel",
+                TextureMetersPerTile = 2f, IsNavigationObstacle = false, CollisionRole = ArenaCollisionRole.Floor,
+            },
+            new ArenaPrimitiveDefinition
+            {
+                Id = "north-wall", Position = new Vector3(0f, 2f, -15.85f), Size = new Vector3(39.4f, 4f, 0.3f),
+                Color = new Vector3(0.13f, 0.09f, 0.22f), TextureAsset = "Textures/Arena/wall-panel",
+                TextureMetersPerTile = 2f, CollisionRole = ArenaCollisionRole.OuterWall,
+            },
+            new ArenaPrimitiveDefinition
+            {
+                Id = "south-wall", Position = new Vector3(0f, 2f, 15.85f), Size = new Vector3(39.4f, 4f, 0.3f),
+                Color = new Vector3(0.13f, 0.09f, 0.22f), TextureAsset = "Textures/Arena/wall-panel",
+                TextureMetersPerTile = 2f, CollisionRole = ArenaCollisionRole.OuterWall,
+            },
+            new ArenaPrimitiveDefinition
+            {
+                Id = "west-wall", Position = new Vector3(-19.85f, 2f, 0f), Size = new Vector3(0.3f, 4f, 32f),
+                Color = new Vector3(0.13f, 0.09f, 0.22f), TextureAsset = "Textures/Arena/wall-panel",
+                TextureMetersPerTile = 2f, CollisionRole = ArenaCollisionRole.OuterWall,
+            },
+            new ArenaPrimitiveDefinition
+            {
+                Id = "east-wall", Position = new Vector3(19.85f, 2f, 0f), Size = new Vector3(0.3f, 4f, 32f),
+                Color = new Vector3(0.13f, 0.09f, 0.22f), TextureAsset = "Textures/Arena/wall-panel",
+                TextureMetersPerTile = 2f, CollisionRole = ArenaCollisionRole.OuterWall,
+            },
+            new ArenaPrimitiveDefinition
+            {
+                Id = "core-shield-west", Position = new Vector3(-10f, 1f, 0f), Size = new Vector3(1f, 2f, 1f),
+                Color = new Vector3(0.1f, 0.9f, 1f), HasCollision = false,
+                IsNavigationObstacle = false, IsEmissive = true,
+            },
+            new ArenaPrimitiveDefinition
+            {
+                Id = "core-shield-east", Position = new Vector3(10f, 1f, 0f), Size = new Vector3(1f, 2f, 1f),
+                Color = new Vector3(0.1f, 0.9f, 1f), HasCollision = false,
+                IsNavigationObstacle = false, IsEmissive = true,
+            },
+        ],
+        BossArenaAnchor = new Vector3(0f, 0f, -4f),
+            BossArenaHalfExtents = new Vector3(18f, 0f, 14f),
+        };
+
+        Vector3 accent = (seed & 1) == 0
+            ? new Vector3(0.18f, 0.88f, 1f)
+            : new Vector3(0.82f, 0.22f, 0.95f);
+        for (int index = 0; index < 4; index++)
+        {
+            bool northWall = ((uint)seed >> index & 1u) == 0u;
+            arena.Primitives.Add(new ArenaPrimitiveDefinition
+            {
+                Id = $"seed-panel-{index + 1}",
+                Position = new Vector3(-12f + index * 8f, 2f, northWall ? -15.675f : 15.675f),
+                Size = new Vector3(4f, 2f, 0.05f),
+                Color = accent,
+                HasCollision = false,
+                IsNavigationObstacle = false,
+                IsEmissive = true,
+            });
+        }
+        return arena;
     }
 
     private static Vector3 RotateAroundY(Vector3 direction, float radians)
@@ -5062,7 +5758,8 @@ public sealed class GameSimulation : IDisposable
         float head = feet + bodyHeight;
         foreach (ArenaPrimitiveDefinition primitive in Arena.Primitives)
         {
-            if (!primitive.HasCollision || primitive.Id.Equals("floor", StringComparison.OrdinalIgnoreCase) ||
+            if (_disabledStaticColliderIds.Contains(primitive.Id) || !primitive.HasCollision ||
+                primitive.Id.Equals("floor", StringComparison.OrdinalIgnoreCase) ||
                 !primitive.IsNavigationObstacle)
             {
                 continue;

@@ -1,3 +1,5 @@
 # Fonts
 
-The vertical slice uses a built-in 5x7 pixel glyph renderer. Licensed font assets can be added here later.
+The HUD and menus compile Oxanium Regular (20 pt HUD and 22 pt body) and Oxanium SemiBold
+(44 pt headings) as SpriteFonts. Oxanium is distributed under SIL Open Font License 1.1;
+the unchanged license is in `OFL-Oxanium.txt`.

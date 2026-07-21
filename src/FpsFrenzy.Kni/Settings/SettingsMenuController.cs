@@ -9,6 +9,14 @@ public enum MenuPage
 {
     None,
     Main,
+    Play,
+    Operative,
+    Arsenal,
+    AdventureSetup,
+    SeedKeypad,
+    ConfirmNewRun,
+    AdventureMap,
+    Transmission,
     Pause,
     Loadout,
     Armory,
@@ -28,6 +36,7 @@ public enum MenuPage
     Tutorial,
     Reward,
     Settings,
+    Controls,
     Accessibility,
     Results,
 }
@@ -53,6 +62,12 @@ public enum MenuAction
     StartDebugLab,
 }
 
+public readonly record struct MenuCommand(MenuAction Type, GameMode? Mode = null, int? Seed = null)
+{
+    public static MenuCommand None => new(MenuAction.None);
+    public static implicit operator MenuAction(MenuCommand command) => command.Type;
+}
+
 public sealed class SettingsMenuController
 {
     private static readonly MenuPage[] ProfileTabs =
@@ -63,19 +78,26 @@ public sealed class SettingsMenuController
     private sealed record ArmoryChoice(WeaponDefinition Weapon, EquipmentInstance? Item);
     public static readonly string[] MainRows =
     [
-        "START NEW RUN", "CHARACTER", "INVENTORY", "ABILITIES", "PROFICIENCIES", "DIFFICULTY", "THREAT TIER",
-        "LOADOUT", "DEBUG LAB", "RECORDS", "SETTINGS", "ACCESSIBILITY", "QUIT TO DESKTOP",
+        "PLAY", "OPERATIVE", "ARSENAL", "RECORDS", "SETTINGS", "QUIT TO DESKTOP",
     ];
-    private static readonly string[] MainRowsWithContinue = ["CONTINUE RUN", .. MainRows];
+    public static readonly string[] OperativeRows = ["CHARACTER", "ABILITIES", "PROFICIENCIES", "STATS", "BACK"];
+    public static readonly string[] ArsenalRows = ["INVENTORY", "LOADOUT", "CRAFTING", "ARMORY", "BACK"];
+    public static readonly string[] AdventureSetupRows =
+        ["SEED", "EDIT SEED", "RANDOMIZE", "BEGIN ADVENTURE", "BACK"];
+    public static readonly string[] SeedKeypadRows =
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "BACKSPACE", "RANDOMIZE", "CONFIRM"];
+    public static readonly string[] ConfirmNewRunRows = ["CONFIRM START OVER", "CANCEL"];
     public static readonly string[] PauseRows =
     [
         "RESUME", "CHARACTER", "INVENTORY", "LOADOUT", "ABILITIES", "PROFICIENCIES", "CRAFTING", "STATS",
         "SETTINGS", "ACCESSIBILITY", "RESTART STANDARD RUN", "MAIN MENU", "QUIT TO DESKTOP",
     ];
-    public static readonly string[] SettingsRows = ["MASTER VOLUME", "MUSIC VOLUME", "SFX VOLUME", "MOUSE SENSITIVITY", "GAMEPAD SENSITIVITY", "FIELD OF VIEW", "FRAME RATE", "GOD MODE", "BACK"];
-    public static readonly string[] AccessibilityRows = ["REDUCED FLASH", "SCREEN SHAKE", "CAMERA BOB", "HIGH CONTRAST RETICLE", "LARGE HUD TEXT", "SUBTITLES", "TOGGLE ADS", "COLOR VISION", "BACK"];
+    public static readonly string[] SettingsRows = ["MASTER VOLUME", "MUSIC VOLUME", "SFX VOLUME", "MOUSE SENSITIVITY", "GAMEPAD SENSITIVITY", "FIELD OF VIEW", "FRAME RATE", "GOD MODE", "CONTROLLER BINDINGS", "ACCESSIBILITY", "BACK"];
+    public static readonly string[] ControlsRows =
+        [.. GamepadBindingCatalog.Actions.Select(GamepadBindingCatalog.ActionLabel), "RESET DEFAULTS", "BACK"];
+    public static readonly string[] AccessibilityRows = ["REDUCED FLASH", "REDUCED UI MOTION", "SCREEN SHAKE", "CAMERA BOB", "HIGH CONTRAST RETICLE", "LARGE HUD TEXT", "SUBTITLES", "TOGGLE ADS", "COLOR VISION", "BACK"];
     public static readonly string[] ResultsRows = ["PLAY AGAIN", "MAIN MENU", "QUIT TO DESKTOP"];
-    public static readonly string[] RecordsRows = ["BACK"];
+    public static readonly string[] RecordsRows = ["ARENA RECORDS", "ADVENTURE RECORDS", "BACK"];
     public static readonly string[] TutorialRows = ["BEGIN RUN", "BACK"];
 
     private MenuInputSnapshot _previousInput;
@@ -100,6 +122,15 @@ public sealed class SettingsMenuController
     private ProfileData? _profile;
     private ContentCatalog? _catalog;
     private bool _hasCheckpoint;
+    private bool _hasAdventureCheckpoint;
+    private GameMode? _selectedCommandMode;
+    private int? _selectedCommandSeed;
+    private int _adventureSeed = Random.Shared.Next(1, int.MaxValue);
+    private string _seedBuffer = string.Empty;
+    private bool _replaceSeedOnNextDigit;
+    private GameMode _pendingNewMode;
+    private int? _pendingNewSeed;
+    private MenuPage _confirmNewRunReturnPage = MenuPage.Play;
     private int _inventoryPage;
     private EquipmentSlot? _inventorySlotFilter;
     private ItemRarity? _inventoryRarityFilter;
@@ -114,6 +145,10 @@ public sealed class SettingsMenuController
     private int _armoryPage;
     private int _armorySetIndex;
     private EquipmentSlot _armoryHand = EquipmentSlot.RightHand;
+    private GameMode _recordsMode = GameMode.Arena;
+    private GameMode _activeMode = GameMode.Arena;
+    private GamepadBindingAction? _bindingCaptureAction;
+    private bool _bindingCaptureAwaitingRelease;
 
     public MenuPage Page { get; private set; }
     public int SelectedIndex { get; private set; }
@@ -124,12 +159,18 @@ public sealed class SettingsMenuController
     public string? SelectedRecoveryItemId { get; private set; }
     public PendingWeaponPickupDecision? WeaponPickupDecision { get; private set; }
     public WeaponPickupDecisionAction? SelectedWeaponPickupAction { get; private set; }
+    public int AdventureSeed => _adventureSeed;
+    public GameMode RecordsMode => _recordsMode;
+    public GamepadBindingAction? BindingCaptureAction => _bindingCaptureAction;
+
+    public void SetActiveMode(GameMode mode) => _activeMode = mode;
 
     public void ConfigureProfile(
         ProfileData profile,
         IEnumerable<(string Id, string DisplayName)> weapons,
         bool hasCheckpoint = false,
-        ContentCatalog? catalog = null)
+        ContentCatalog? catalog = null,
+        bool hasAdventureCheckpoint = false)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(weapons);
@@ -140,6 +181,7 @@ public sealed class SettingsMenuController
             CanonicalizeProfileQuickbar(profile, _catalog);
         }
         _hasCheckpoint = hasCheckpoint;
+        _hasAdventureCheckpoint = hasAdventureCheckpoint;
         _loadoutRows.Clear();
         _loadoutWeaponIds.Clear();
         foreach ((string id, string displayName) in weapons)
@@ -337,7 +379,9 @@ public sealed class SettingsMenuController
 
     private void OpenProfilePage(MenuPage page)
     {
-        MenuPage returnPage = Page is MenuPage.Pause or MenuPage.Recovery ? Page : MenuPage.Main;
+        MenuPage returnPage = Page is MenuPage.Pause or MenuPage.Recovery or MenuPage.Operative or MenuPage.Arsenal
+            ? Page
+            : MenuPage.Main;
         Page = page;
         SelectedIndex = 0;
         _returnPage = returnPage;
@@ -345,7 +389,9 @@ public sealed class SettingsMenuController
 
     private void ReturnToProfileParent()
     {
-        Page = _returnPage is MenuPage.Pause or MenuPage.Recovery ? _returnPage : MenuPage.Main;
+        Page = _returnPage is MenuPage.Pause or MenuPage.Recovery or MenuPage.Operative or MenuPage.Arsenal
+            ? _returnPage
+            : MenuPage.Main;
         SelectedIndex = 0;
     }
 
@@ -394,11 +440,30 @@ public sealed class SettingsMenuController
         _returnPage = returnPage;
     }
 
+    public void OpenControls(MenuPage returnPage = MenuPage.Pause)
+    {
+        Page = MenuPage.Controls;
+        SelectedIndex = 0;
+        _returnPage = returnPage;
+        _bindingCaptureAction = null;
+        _bindingCaptureAwaitingRelease = false;
+    }
+
     public void OpenResults()
     {
         Page = MenuPage.Results;
         SelectedIndex = 0;
         _returnPage = MenuPage.Results;
+    }
+
+    public void OpenAdventureSetup(int? seed = null)
+    {
+        _adventureSeed = Math.Clamp(seed ?? Random.Shared.Next(1, int.MaxValue), 1, int.MaxValue);
+        _seedBuffer = _adventureSeed.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _replaceSeedOnNextDigit = true;
+        Page = MenuPage.AdventureSetup;
+        SelectedIndex = 0;
+        _returnPage = MenuPage.Play;
     }
 
     public void Close()
@@ -409,7 +474,34 @@ public sealed class SettingsMenuController
 
     public MenuAction Update(GameSettings settings, MenuInputSnapshot input, Rectangle safeArea)
     {
-        if (Pressed(MenuInputButtons.OpenSettings, input) && Page is not (MenuPage.Settings or MenuPage.Accessibility))
+        if (Page == MenuPage.Controls && _bindingCaptureAction is { } captureAction)
+        {
+            if (_bindingCaptureAwaitingRelease)
+            {
+                if (input.HeldGamepadButton is null)
+                {
+                    _bindingCaptureAwaitingRelease = false;
+                }
+                return Finish(input, MenuAction.None);
+            }
+
+            if (input.HeldGamepadButton is { } capturedButton)
+            {
+                settings.ControllerBindings.AssignWithSwap(captureAction, capturedButton);
+                _bindingCaptureAction = null;
+                settings.Clamp();
+                return Finish(input, MenuAction.SettingsChanged);
+            }
+
+            if (Pressed(MenuInputButtons.Back, input))
+            {
+                _bindingCaptureAction = null;
+            }
+            return Finish(input, MenuAction.None);
+        }
+
+        if (Pressed(MenuInputButtons.OpenSettings, input) &&
+            Page is not (MenuPage.Settings or MenuPage.Controls or MenuPage.Accessibility))
         {
             MenuPage returnPage = Page == MenuPage.None ? MenuPage.Pause : Page;
             bool pausesGameplay = Page == MenuPage.None;
@@ -417,7 +509,8 @@ public sealed class SettingsMenuController
             return Finish(input, pausesGameplay ? MenuAction.Pause : MenuAction.None);
         }
 
-        if (Pressed(MenuInputButtons.OpenAccessibility, input) && Page is not (MenuPage.Settings or MenuPage.Accessibility))
+        if (Pressed(MenuInputButtons.OpenAccessibility, input) &&
+            Page is not (MenuPage.Settings or MenuPage.Controls or MenuPage.Accessibility))
         {
             MenuPage returnPage = Page == MenuPage.None ? MenuPage.Pause : Page;
             bool pausesGameplay = Page == MenuPage.None;
@@ -434,7 +527,8 @@ public sealed class SettingsMenuController
             }
 
             if (Page == MenuPage.Pause ||
-                (Page is MenuPage.Settings or MenuPage.Accessibility && _returnPage == MenuPage.Pause))
+                (Page is MenuPage.Settings or MenuPage.Controls or MenuPage.Accessibility &&
+                    _returnPage == MenuPage.Pause))
             {
                 Close();
                 return Finish(input, MenuAction.Resume);
@@ -456,9 +550,36 @@ public sealed class SettingsMenuController
                 return Finish(input, MenuAction.WeaponPickupResolved);
             }
 
-            if (Page is MenuPage.Settings or MenuPage.Accessibility)
+            if (Page is MenuPage.Settings or MenuPage.Controls or MenuPage.Accessibility)
             {
                 Page = _returnPage;
+                SelectedIndex = 0;
+                return Finish(input, MenuAction.None);
+            }
+
+            if (Page is MenuPage.Play or MenuPage.Operative or MenuPage.Arsenal)
+            {
+                OpenMain();
+                return Finish(input, MenuAction.None);
+            }
+
+            if (Page == MenuPage.AdventureSetup)
+            {
+                Page = MenuPage.Play;
+                SelectedIndex = 0;
+                return Finish(input, MenuAction.None);
+            }
+
+            if (Page == MenuPage.SeedKeypad)
+            {
+                Page = MenuPage.AdventureSetup;
+                SelectedIndex = 1;
+                return Finish(input, MenuAction.None);
+            }
+
+            if (Page == MenuPage.ConfirmNewRun)
+            {
+                Page = _confirmNewRunReturnPage;
                 SelectedIndex = 0;
                 return Finish(input, MenuAction.None);
             }
@@ -517,6 +638,21 @@ public sealed class SettingsMenuController
             return Finish(input, MenuAction.None);
         }
 
+        if (Page is MenuPage.AdventureSetup or MenuPage.SeedKeypad)
+        {
+            bool backspacePressed = input.Backspace && !_previousInput.Backspace;
+            if (input.Digit is int digit && input.Digit != _previousInput.Digit)
+            {
+                AppendSeedDigit(digit);
+                return Finish(input, MenuAction.None);
+            }
+            if (backspacePressed)
+            {
+                BackspaceSeedDigit();
+                return Finish(input, MenuAction.None);
+            }
+        }
+
         int currentTab = GetProfileTabIndex(Page);
         if (currentTab >= 0)
         {
@@ -542,7 +678,11 @@ public sealed class SettingsMenuController
         {
             _confirmBatchDismantle = false;
         }
-        if (Pressed(MenuInputButtons.Up, input))
+        if (input.ScrollDirection != 0)
+        {
+            SelectedIndex = Math.Clamp(SelectedIndex + input.ScrollDirection, 0, rowCount - 1);
+        }
+        else if (Pressed(MenuInputButtons.Up, input))
         {
             SelectedIndex = (SelectedIndex + rowCount - 1) % rowCount;
         }
@@ -551,8 +691,28 @@ public sealed class SettingsMenuController
             SelectedIndex = (SelectedIndex + 1) % rowCount;
         }
 
-        MenuLayoutMetrics layout = MenuLayout.Create(safeArea, rowCount, settings.LargeHudText, Page);
-        int pointerRow = input.HasPointer ? layout.HitTest(input.PointerPosition) : -1;
+        MenuRowWindow rowWindow = MenuLayout.GetRowWindow(
+            safeArea, rowCount, settings.LargeHudText, Page, SelectedIndex);
+        MenuLayoutMetrics layout = MenuLayout.Create(safeArea, rowWindow.Count, settings.LargeHudText, Page);
+        bool pointerPressed = input.PointerDown && !_previousInput.PointerDown;
+        if (pointerPressed && rowWindow.Count < rowCount)
+        {
+            if (MenuLayout.GetScrollUpBounds(layout).Contains(input.PointerPosition))
+            {
+                SelectedIndex = Math.Max(0, SelectedIndex - 1);
+                return Finish(input, MenuAction.None);
+            }
+            if (MenuLayout.GetScrollDownBounds(layout).Contains(input.PointerPosition))
+            {
+                SelectedIndex = Math.Min(rowCount - 1, SelectedIndex + 1);
+                return Finish(input, MenuAction.None);
+            }
+        }
+        bool touchDragging = input.IsTouch && input.PointerDown && _previousInput.PointerDown;
+        int visiblePointerRow = input.HasPointer && input.ScrollDirection == 0 && !touchDragging
+            ? layout.HitTest(input.PointerPosition)
+            : -1;
+        int pointerRow = visiblePointerRow >= 0 ? rowWindow.Start + visiblePointerRow : -1;
         bool pointerActivated = pointerRow >= 0 && input.PointerDown && !_previousInput.PointerDown;
         if (pointerRow >= 0 && input.HasPointerSelectionIntent(_previousInput))
         {
@@ -577,11 +737,19 @@ public sealed class SettingsMenuController
         if (Pressed(MenuInputButtons.Accept, input) || pointerActivated)
         {
             action = pointerActivated
-                ? ActivatePointer(settings, pointerRow, input.PointerPosition, layout)
+                ? ActivatePointer(settings, pointerRow, visiblePointerRow, input.PointerPosition, layout)
                 : Activate(settings);
         }
 
         return Finish(input, action);
+    }
+
+    public MenuCommand UpdateCommand(GameSettings settings, MenuInputSnapshot input, Rectangle safeArea)
+    {
+        _selectedCommandMode = null;
+        _selectedCommandSeed = null;
+        MenuAction action = Update(settings, input, safeArea);
+        return new MenuCommand(action, _selectedCommandMode, _selectedCommandSeed);
     }
 
     private static int GetProfileTabIndex(MenuPage page) => page switch
@@ -605,8 +773,14 @@ public sealed class SettingsMenuController
 
     public IReadOnlyList<string> GetRows() => Page switch
     {
-        MenuPage.Main => _hasCheckpoint ? MainRowsWithContinue : MainRows,
-        MenuPage.Pause => PauseRows,
+        MenuPage.Main => MainRows,
+        MenuPage.Play => GetPlayRows(),
+        MenuPage.Operative => OperativeRows,
+        MenuPage.Arsenal => ArsenalRows,
+        MenuPage.AdventureSetup => AdventureSetupRows,
+        MenuPage.SeedKeypad => SeedKeypadRows,
+        MenuPage.ConfirmNewRun => ConfirmNewRunRows,
+        MenuPage.Pause => GetPauseRows(),
         MenuPage.Loadout => _catalog is null ? _loadoutRows : GetEquipmentLoadoutRows(),
         MenuPage.Armory => GetArmoryRows(),
         MenuPage.Character => GetCharacterRows(),
@@ -625,13 +799,83 @@ public sealed class SettingsMenuController
         MenuPage.Tutorial => TutorialRows,
         MenuPage.Reward => _rewardRows,
         MenuPage.Settings => SettingsRows,
+        MenuPage.Controls => ControlsRows,
         MenuPage.Accessibility => AccessibilityRows,
         MenuPage.Results => ResultsRows,
         _ => [],
     };
 
+    private List<string> GetPlayRows()
+    {
+        List<string> rows = [];
+        if (_hasAdventureCheckpoint)
+        {
+            rows.Add("CONTINUE ADVENTURE");
+        }
+        if (_hasCheckpoint)
+        {
+            rows.Add("CONTINUE ARENA");
+        }
+        rows.Add("NEW ADVENTURE");
+        rows.Add("NEW ARENA");
+        rows.Add("DEBUG LAB");
+        rows.Add("BACK");
+        return rows;
+    }
+
+    private string[] GetPauseRows()
+    {
+        string[] rows = [.. PauseRows];
+        if (_activeMode == GameMode.Adventure)
+        {
+            rows[10] = "RESTART CURRENT STAGE";
+        }
+        return rows;
+    }
+
+    private void AppendSeedDigit(int digit)
+    {
+        if (digit is < 0 or > 9)
+        {
+            return;
+        }
+        string candidate = _replaceSeedOnNextDigit
+            ? digit.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : (_seedBuffer == "0" ? string.Empty : _seedBuffer) + digit;
+        if (candidate.Length > 10 || !long.TryParse(candidate, out long parsed) || parsed > int.MaxValue)
+        {
+            return;
+        }
+        _replaceSeedOnNextDigit = false;
+        _seedBuffer = candidate;
+        _adventureSeed = Math.Clamp((int)parsed, 1, int.MaxValue);
+    }
+
+    private void BackspaceSeedDigit()
+    {
+        _replaceSeedOnNextDigit = false;
+        if (_seedBuffer.Length > 0)
+        {
+            _seedBuffer = _seedBuffer[..^1];
+        }
+        _adventureSeed = int.TryParse(_seedBuffer, out int parsed) && parsed > 0 ? parsed : 1;
+    }
+
+    private void RandomizeAdventureSeed()
+    {
+        _adventureSeed = Random.Shared.Next(1, int.MaxValue);
+        _seedBuffer = _adventureSeed.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _replaceSeedOnNextDigit = true;
+    }
+
     public string GetSupplementalValue(int index)
     {
+        if (Page is MenuPage.AdventureSetup or MenuPage.SeedKeypad)
+        {
+            return index == 0 || Page == MenuPage.SeedKeypad
+                ? $"SEED {_adventureSeed:N0}  |  {DungeonGenerator.CurrentGeneratorVersion.ToUpperInvariant()}"
+                : string.Empty;
+        }
         if (Page == MenuPage.WeaponPickup && WeaponPickupDecision is { } decision)
         {
             EquipmentInstance offered = decision.OfferedItem;
@@ -719,54 +963,149 @@ public sealed class SettingsMenuController
     {
         if (Page == MenuPage.Main)
         {
-            int offset = _hasCheckpoint ? 1 : 0;
-            if (_hasCheckpoint && SelectedIndex == 0)
-            {
-                Page = MenuPage.None;
-                return MenuAction.ContinueRun;
-            }
-
-            switch (SelectedIndex - offset)
+            switch (SelectedIndex)
             {
                 case 0:
-                    Page = MenuPage.None;
-                    return MenuAction.StartRun;
+                    Page = MenuPage.Play;
+                    SelectedIndex = 0;
+                    return MenuAction.None;
                 case 1:
-                    OpenCharacter();
+                    Page = MenuPage.Operative;
+                    SelectedIndex = 0;
                     return MenuAction.None;
                 case 2:
-                    OpenInventory();
+                    Page = MenuPage.Arsenal;
+                    SelectedIndex = 0;
                     return MenuAction.None;
                 case 3:
-                    OpenAbilities();
-                    return MenuAction.None;
-                case 4:
-                    OpenProficiencies();
-                    return MenuAction.None;
-                case 5:
-                    OpenDifficulty();
-                    return MenuAction.None;
-                case 6:
-                    OpenThreatTier();
-                    return MenuAction.None;
-                case 7:
-                    OpenLoadout();
-                    return MenuAction.None;
-                case 8:
-                    Page = MenuPage.None;
-                    return MenuAction.StartDebugLab;
-                case 9:
                     OpenRecords();
                     return MenuAction.None;
-                case 10:
+                case 4:
                     OpenSettings(MenuPage.Main);
                     return MenuAction.None;
-                case 11:
-                    OpenAccessibility(MenuPage.Main);
-                    return MenuAction.None;
-                case 12:
+                case 5:
                     return MenuAction.Quit;
             }
+        }
+
+        else if (Page == MenuPage.Play)
+        {
+            string selected = GetPlayRows()[SelectedIndex];
+            switch (selected)
+            {
+                case "CONTINUE ADVENTURE":
+                    _selectedCommandMode = GameMode.Adventure;
+                    Page = MenuPage.None;
+                    return MenuAction.ContinueRun;
+                case "CONTINUE ARENA":
+                    _selectedCommandMode = GameMode.Arena;
+                    Page = MenuPage.None;
+                    return MenuAction.ContinueRun;
+                case "NEW ADVENTURE":
+                    OpenAdventureSetup();
+                    return MenuAction.None;
+                case "NEW ARENA":
+                    if (_hasCheckpoint)
+                    {
+                        OpenNewRunConfirmation(GameMode.Arena, null, MenuPage.Play);
+                        return MenuAction.None;
+                    }
+                    return CommitNewRun(GameMode.Arena, null);
+                case "DEBUG LAB":
+                    Page = MenuPage.None;
+                    return MenuAction.StartDebugLab;
+                case "BACK":
+                    OpenMain();
+                    return MenuAction.None;
+            }
+        }
+
+        else if (Page == MenuPage.Operative)
+        {
+            switch (SelectedIndex)
+            {
+                case 0: OpenCharacter(); break;
+                case 1: OpenAbilities(); break;
+                case 2: OpenProficiencies(); break;
+                case 3: OpenStats(); break;
+                default: OpenMain(); break;
+            }
+            return MenuAction.None;
+        }
+
+        else if (Page == MenuPage.Arsenal)
+        {
+            switch (SelectedIndex)
+            {
+                case 0: OpenInventory(); break;
+                case 1: OpenLoadout(); break;
+                case 2: OpenCrafting(); break;
+                case 3: OpenLoadout(); break;
+                default: OpenMain(); break;
+            }
+            return MenuAction.None;
+        }
+
+        else if (Page == MenuPage.AdventureSetup)
+        {
+            switch (SelectedIndex)
+            {
+                case 1:
+                    Page = MenuPage.SeedKeypad;
+                    SelectedIndex = 0;
+                    _replaceSeedOnNextDigit = true;
+                    break;
+                case 2:
+                    RandomizeAdventureSeed();
+                    break;
+                case 3:
+                    if (_hasAdventureCheckpoint)
+                    {
+                        OpenNewRunConfirmation(GameMode.Adventure, _adventureSeed, MenuPage.AdventureSetup);
+                        return MenuAction.None;
+                    }
+                    return CommitNewRun(GameMode.Adventure, _adventureSeed);
+                case 4:
+                    Page = MenuPage.Play;
+                    SelectedIndex = 0;
+                    break;
+            }
+            return MenuAction.None;
+        }
+
+        else if (Page == MenuPage.ConfirmNewRun)
+        {
+            if (SelectedIndex == 0)
+            {
+                return CommitNewRun(_pendingNewMode, _pendingNewSeed);
+            }
+
+            Page = _confirmNewRunReturnPage;
+            SelectedIndex = 0;
+            return MenuAction.None;
+        }
+
+        else if (Page == MenuPage.SeedKeypad)
+        {
+            if (SelectedIndex <= 9)
+            {
+                AppendSeedDigit(int.Parse(SeedKeypadRows[SelectedIndex],
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else if (SelectedIndex == 10)
+            {
+                BackspaceSeedDigit();
+            }
+            else if (SelectedIndex == 11)
+            {
+                RandomizeAdventureSeed();
+            }
+            else
+            {
+                Page = MenuPage.AdventureSetup;
+                SelectedIndex = 3;
+            }
+            return MenuAction.None;
         }
 
         else if (Page == MenuPage.Loadout)
@@ -825,6 +1164,11 @@ public sealed class SettingsMenuController
 
         else if (Page == MenuPage.Records)
         {
+            if (SelectedIndex <= 1)
+            {
+                _recordsMode = SelectedIndex == 0 ? GameMode.Arena : GameMode.Adventure;
+                return MenuAction.None;
+            }
             OpenMain();
             return MenuAction.None;
         }
@@ -1075,6 +1419,40 @@ public sealed class SettingsMenuController
             return action;
         }
 
+        if (Page == MenuPage.Settings && SelectedIndex == 8)
+        {
+            OpenControls(_returnPage);
+            return MenuAction.None;
+        }
+
+        if (Page == MenuPage.Settings && SelectedIndex == 9)
+        {
+            Page = MenuPage.Accessibility;
+            SelectedIndex = 0;
+            return MenuAction.None;
+        }
+
+        if (Page == MenuPage.Controls)
+        {
+            if (SelectedIndex < GamepadBindingCatalog.Actions.Count)
+            {
+                _bindingCaptureAction = GamepadBindingCatalog.Actions[SelectedIndex];
+                _bindingCaptureAwaitingRelease = true;
+                return MenuAction.None;
+            }
+
+            if (SelectedIndex == GamepadBindingCatalog.Actions.Count)
+            {
+                settings.ControllerBindings.Reset();
+                settings.Clamp();
+                return MenuAction.SettingsChanged;
+            }
+
+            Page = _returnPage;
+            SelectedIndex = 0;
+            return MenuAction.None;
+        }
+
         string[] rows = Page == MenuPage.Settings ? SettingsRows : AccessibilityRows;
         if (SelectedIndex == rows.Length - 1)
         {
@@ -1084,6 +1462,24 @@ public sealed class SettingsMenuController
         }
 
         return Adjust(settings, 1);
+    }
+
+    private void OpenNewRunConfirmation(GameMode mode, int? seed, MenuPage returnPage)
+    {
+        _pendingNewMode = mode;
+        _pendingNewSeed = seed;
+        _confirmNewRunReturnPage = returnPage;
+        Page = MenuPage.ConfirmNewRun;
+        SelectedIndex = 1;
+    }
+
+    private MenuAction CommitNewRun(GameMode mode, int? seed)
+    {
+        _selectedCommandMode = mode;
+        _selectedCommandSeed = seed;
+        Page = MenuPage.None;
+        SelectedIndex = 0;
+        return MenuAction.StartRun;
     }
 
     private List<string> GetCharacterRows()
@@ -1953,10 +2349,11 @@ public sealed class SettingsMenuController
     private MenuAction ActivatePointer(
         GameSettings settings,
         int row,
+        int visibleRow,
         Point pointerPosition,
         MenuLayoutMetrics layout)
     {
-        if (TrySetPointerSlider(settings, row, pointerPosition, layout))
+        if (TrySetPointerSlider(settings, row, visibleRow, pointerPosition, layout))
         {
             settings.Clamp();
             return MenuAction.SettingsChanged;
@@ -1968,10 +2365,16 @@ public sealed class SettingsMenuController
     private bool TrySetPointerSlider(
         GameSettings settings,
         int row,
+        int visibleRow,
         Point pointerPosition,
         MenuLayoutMetrics layout)
     {
-        Rectangle bounds = layout.GetRowBounds(row);
+        if (Page is not (MenuPage.Settings or MenuPage.Accessibility))
+        {
+            return false;
+        }
+
+        Rectangle bounds = layout.GetRowBounds(visibleRow);
         float amount = Math.Clamp(
             (pointerPosition.X - bounds.Left) / (float)Math.Max(1, bounds.Width - 1),
             0f,
@@ -1992,8 +2395,8 @@ public sealed class SettingsMenuController
         {
             switch (row)
             {
-                case 1: settings.ScreenShakeScale = amount; return true;
-                case 2: settings.CameraBobScale = amount; return true;
+                case 2: settings.ScreenShakeScale = amount; return true;
+                case 3: settings.CameraBobScale = amount; return true;
             }
         }
 
@@ -2017,18 +2420,29 @@ public sealed class SettingsMenuController
                 default: return MenuAction.None;
             }
         }
+        else if (Page == MenuPage.Controls &&
+            SelectedIndex >= 0 && SelectedIndex < GamepadBindingCatalog.Actions.Count)
+        {
+            GamepadBindingAction action = GamepadBindingCatalog.Actions[SelectedIndex];
+            GamepadBindingButton current = settings.ControllerBindings[action];
+            int buttonIndex = Array.IndexOf(GamepadBindingCatalog.Buttons.ToArray(), current);
+            int next = (buttonIndex + direction + GamepadBindingCatalog.Buttons.Count) %
+                GamepadBindingCatalog.Buttons.Count;
+            settings.ControllerBindings.AssignWithSwap(action, GamepadBindingCatalog.Buttons[next]);
+        }
         else if (Page == MenuPage.Accessibility)
         {
             switch (SelectedIndex)
             {
                 case 0: settings.ReducedFlash = !settings.ReducedFlash; break;
-                case 1: settings.ScreenShakeScale += direction * 0.1f; break;
-                case 2: settings.CameraBobScale += direction * 0.1f; break;
-                case 3: settings.HighContrastReticle = !settings.HighContrastReticle; break;
-                case 4: settings.LargeHudText = !settings.LargeHudText; break;
-                case 5: settings.Subtitles = !settings.Subtitles; break;
-                case 6: settings.ToggleAimDownSights = !settings.ToggleAimDownSights; break;
-                case 7:
+                case 1: settings.ReducedUiMotion = !settings.ReducedUiMotion; break;
+                case 2: settings.ScreenShakeScale += direction * 0.1f; break;
+                case 3: settings.CameraBobScale += direction * 0.1f; break;
+                case 4: settings.HighContrastReticle = !settings.HighContrastReticle; break;
+                case 5: settings.LargeHudText = !settings.LargeHudText; break;
+                case 6: settings.Subtitles = !settings.Subtitles; break;
+                case 7: settings.ToggleAimDownSights = !settings.ToggleAimDownSights; break;
+                case 8:
                     int count = Enum.GetValues<ColorVisionMode>().Length;
                     settings.ColorVisionMode = (ColorVisionMode)(((int)settings.ColorVisionMode + direction + count) % count);
                     break;

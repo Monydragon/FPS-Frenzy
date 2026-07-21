@@ -8,7 +8,7 @@ namespace FpsFrenzy.Kni.Progression;
 
 public sealed record ProfileData
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public long Generation { get; set; }
@@ -21,9 +21,15 @@ public sealed record ProfileData
     public int LongRangeKills { get; set; }
     public int RunsStarted { get; set; }
     public int RunsWon { get; set; }
+    public int AdventureRunsStarted { get; set; }
+    public int AdventureRunsWon { get; set; }
     public bool TutorialSeen { get; set; }
     public RunRecord? BestUnassistedRun { get; set; }
     public RunRecord? MostRecentRun { get; set; }
+    public RunRecord? BestUnassistedAdventureRun { get; set; }
+    public RunRecord? MostRecentAdventureRun { get; set; }
+    public HashSet<string> DiscoveredLoreIds { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool NullSignalCompleted { get; set; }
     public int Level { get; set; } = 1;
     public int Experience { get; set; }
     public int UnspentTalentPoints { get; set; }
@@ -57,12 +63,8 @@ public sealed record ProfileData
         profile.StarterWeaponSetA = new WeaponSetLoadout
         {
             RightHand = StarterWeaponReference.Issue("pulse-sidearm"),
-            LeftHand = StarterWeaponReference.Issue("ion-sprayer"),
         };
-        profile.StarterWeaponSetB = new WeaponSetLoadout
-        {
-            RightHand = StarterWeaponReference.Issue("longshot-rifle"),
-        };
+        profile.StarterWeaponSetB = new WeaponSetLoadout();
         profile.StarterWeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(
             profile.StarterWeaponSetA, profile.StarterWeaponSetB);
 
@@ -136,13 +138,28 @@ public sealed record ProfileData
     public void RecordRun(RunRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        MostRecentRun = record;
         LifetimeKills += Math.Max(0, record.Kills);
+        if (record.Mode == GameMode.Adventure)
+        {
+            MostRecentAdventureRun = record;
+            if (record.Victory)
+            {
+                AdventureRunsWon++;
+                NullSignalCompleted = true;
+            }
+            if (!record.GodModeUsed &&
+                (BestUnassistedAdventureRun is null || record.Score > BestUnassistedAdventureRun.Score))
+            {
+                BestUnassistedAdventureRun = record;
+            }
+            return;
+        }
+
+        MostRecentRun = record;
         if (record.Victory)
         {
             RunsWon++;
         }
-
         if (!record.GodModeUsed &&
             (BestUnassistedRun is null || record.Score > BestUnassistedRun.Score))
         {
@@ -217,6 +234,7 @@ public sealed record ProfileData
 
 public sealed record RunRecord
 {
+    public GameMode Mode { get; init; } = GameMode.Arena;
     public required DateTimeOffset CompletedAtUtc { get; init; }
     public required int Seed { get; init; }
     public required bool Victory { get; init; }
@@ -238,6 +256,11 @@ public sealed record RunRecord
     public Dictionary<ItemRarity, int> RarityTotals { get; init; } = [];
     public int EquipmentCollected { get; init; }
     public int HighestItemPower { get; init; }
+    public int FloorsCompleted { get; init; }
+    public int SecretsFound { get; init; }
+    public int LoreFound { get; init; }
+    public string? GeneratorVersion { get; init; }
+    public string? LayoutHash { get; init; }
 }
 
 public sealed class ProfileStore
@@ -307,6 +330,14 @@ public sealed class ProfileStore
             {
                 EnsureBaselineUnlocks(versionFour);
                 return versionFour;
+            }
+
+            ProfileData? versionFive = LoadVersionFivePair(_path, _stashPath) ??
+                LoadVersionFivePair(_path + ".bak", _stashPath + ".bak");
+            if (versionFive is not null)
+            {
+                EnsureBaselineUnlocks(versionFive);
+                return versionFive;
             }
 
             ProfileData? legacy = JsonSerializer.Deserialize<ProfileData>(File.ReadAllText(_path), SerializerOptions);
@@ -379,6 +410,23 @@ public sealed class ProfileStore
             profile.UnlockedUpgradeIds.Add(upgradeId);
         }
 
+        bool usesLegacyDefaultWeapons =
+            profile.StarterWeaponSetA.RightHand is { WeaponBaseId: "pulse-sidearm", IsArmoryIssue: true } &&
+            profile.StarterWeaponSetA.LeftHand is { WeaponBaseId: "ion-sprayer", IsArmoryIssue: true } &&
+            profile.StarterWeaponSetB.RightHand is { WeaponBaseId: "longshot-rifle", IsArmoryIssue: true } &&
+            profile.StarterWeaponSetB.LeftHand is null;
+        if (usesLegacyDefaultWeapons)
+        {
+            profile.SelectedStartingWeaponId = "pulse-sidearm";
+            profile.StarterWeaponSetA = new WeaponSetLoadout
+            {
+                RightHand = StarterWeaponReference.Issue("pulse-sidearm"),
+            };
+            profile.StarterWeaponSetB = new WeaponSetLoadout();
+            profile.StarterWeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(
+                profile.StarterWeaponSetA, profile.StarterWeaponSetB);
+        }
+
         if (profile.StarterWeaponQuickbar.Slots.All(slot => slot.IsEmpty))
         {
             profile.StarterWeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(
@@ -407,6 +455,8 @@ public sealed class ProfileStore
         !string.IsNullOrWhiteSpace(profile.SelectedStartingWeaponId) &&
         profile.LifetimeKills >= 0 && profile.CloseRangeKills >= 0 &&
         profile.LongRangeKills >= 0 && profile.RunsStarted >= 0 && profile.RunsWon >= 0 &&
+        profile.AdventureRunsStarted >= 0 && profile.AdventureRunsWon >= 0 &&
+        profile.DiscoveredLoreIds is not null && profile.DiscoveredLoreIds.All(id => !string.IsNullOrWhiteSpace(id)) &&
         profile.Level is >= 1 and <= RpgProgressionMath.MaximumPlayerLevel && profile.Experience >= 0 &&
         profile.UnspentTalentPoints >= 0 && profile.TalentRanks is not null &&
         profile.Salvage >= 0 && profile.Materials is not null &&
@@ -422,13 +472,16 @@ public sealed class ProfileStore
         profile.SelectedThreatTier <= profile.HighestUnlockedThreatTier &&
         DifficultyCatalog.All.Any(definition => definition.Mode ==
             DifficultyCatalog.Normalize(profile.SelectedDifficulty)) &&
-        IsValid(profile.BestUnassistedRun) && IsValid(profile.MostRecentRun);
+        IsValid(profile.BestUnassistedRun) && IsValid(profile.MostRecentRun) &&
+        IsValid(profile.BestUnassistedAdventureRun) && IsValid(profile.MostRecentAdventureRun);
 
     private static bool IsValid(RunRecord? record) =>
         record is null ||
         (record.UpgradeIds is not null && record.NewlyUnlockedIds is not null &&
          record.ProficiencyExperienceGained is not null && record.AbilitiesMastered is not null &&
          record.RarityTotals is not null &&
+         record.FloorsCompleted is >= 0 and <= 3 && record.SecretsFound >= 0 && record.LoreFound >= 0 &&
+         (record.Mode == GameMode.Arena || !string.IsNullOrWhiteSpace(record.GeneratorVersion)) &&
          float.IsFinite(record.ElapsedSeconds) && record.ElapsedSeconds >= 0f &&
          float.IsFinite(record.DamageTaken) && record.DamageTaken >= 0f &&
          record.Score >= 0 && record.Kills >= 0 && record.SectorsCompleted is >= 0 and <= 3 &&
@@ -549,6 +602,38 @@ public sealed class ProfileStore
         {
             SchemaVersion = ProfileData.CurrentSchemaVersion,
             SelectedDifficulty = DifficultyCatalog.Normalize(legacy.SelectedDifficulty),
+        };
+        return IsValid(migrated) ? migrated : null;
+    }
+
+    private static ProfileData? LoadVersionFivePair(string profilePath, string stashPath)
+    {
+        if (!File.Exists(profilePath) || !File.Exists(stashPath))
+        {
+            return null;
+        }
+
+        ProfileData? legacy = JsonSerializer.Deserialize<ProfileData>(File.ReadAllText(profilePath), SerializerOptions);
+        ProfileStashData? stash = JsonSerializer.Deserialize<ProfileStashData>(File.ReadAllText(stashPath),
+            SerializerOptions);
+        if (legacy is null || legacy.SchemaVersion != 5 || stash is null || stash.SchemaVersion != 5 ||
+            legacy.Generation <= 0 || legacy.Generation != stash.Generation || stash.Items is null ||
+            stash.Items.Any(item => !IsValid(item)) ||
+            stash.Items.Select(item => item.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != stash.Items.Count)
+        {
+            return null;
+        }
+
+        legacy.Stash = stash.Items;
+        ProfileData migrated = legacy with
+        {
+            SchemaVersion = ProfileData.CurrentSchemaVersion,
+            BestUnassistedRun = legacy.BestUnassistedRun is null
+                ? null
+                : legacy.BestUnassistedRun with { Mode = GameMode.Arena },
+            MostRecentRun = legacy.MostRecentRun is null
+                ? null
+                : legacy.MostRecentRun with { Mode = GameMode.Arena },
         };
         return IsValid(migrated) ? migrated : null;
     }

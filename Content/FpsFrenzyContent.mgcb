@@ -14,12 +14,29 @@
 #---------------------------------- Content ---------------------------------#
 
 /copy:Data/Arenas/orbital-depot.json
+/copy:Data/Adventures/null-signal.json
 /copy:Data/Enemies/robot-striker.json
 /copy:Data/Enemies/robot-interceptor.json
 /copy:Data/Enemies/robot-juggernaut.json
 /copy:Data/Enemies/robot-wasp.json
 /copy:Data/Enemies/robot-warden.json
 /copy:Data/Enemies/breach-walker.json
+/copy:Data/Enemies/core-warden.json
+
+#begin Fonts/OxaniumHud.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/build:Fonts/OxaniumHud.spritefont
+
+#begin Fonts/OxaniumBody.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/build:Fonts/OxaniumBody.spritefont
+
+#begin Fonts/OxaniumHeading.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/build:Fonts/OxaniumHeading.spritefont
 /copy:Data/Weapons/pulse-sidearm.json
 /copy:Data/Weapons/burst-carbine.json
 /copy:Data/Weapons/scatter-blaster.json
@@ -837,6 +854,14 @@
 /processorParam:PremultiplyAlpha=True
 /build:Textures/UI/menu-emblem.png
 
+#begin Textures/UI/title-menu-background.png
+/importer:TextureImporter
+/processor:TextureProcessor
+/processorParam:ColorKeyEnabled=False
+/processorParam:GenerateMipmaps=False
+/processorParam:PremultiplyAlpha=True
+/build:Textures/UI/title-menu-background.png
+
 #begin Audio/Sfx/pulse-sidearm.ogg
 /importer:OggImporter
 /processor:SoundEffectProcessor
@@ -971,6 +996,11 @@
 /importer:OggImporter
 /processor:SongProcessor
 /build:Audio/Music/airy.ogg
+
+#begin Audio/Music/sector.ogg
+/importer:OggImporter
+/processor:SongProcessor
+/build:Audio/Music/sector.ogg
 
 #begin Audio/Music/pulse.ogg
 /importer:OggImporter

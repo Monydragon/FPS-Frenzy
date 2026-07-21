@@ -8,7 +8,7 @@ All projects enable nullable reference types, deterministic builds, recommended 
 
 ## Project boundaries
 
-- `FpsFrenzy.Core` owns the platform-neutral simulation: stable entity IDs, ticked player commands, Bepu physics, weapons, projectiles, damage, pickups, A* navigation, robot AI, attack timing, objectives, sectors, deterministic run generation, upgrade effects, checkpoints as data, boss phases, and scoring. It uses `System.Numerics` and has no KNI dependency.
+- `FpsFrenzy.Core` owns the platform-neutral simulation: stable entity IDs, ticked player commands, Bepu physics, weapons, projectiles, damage, pickups, A* navigation, robot AI, attack timing, Arena objectives, deterministic dungeon generation, Adventure state, upgrade effects, checkpoints as data, boss phases, and scoring. It uses `System.Numerics` and has no KNI dependency.
 - `FpsFrenzy.Kni` owns the variable-rate game loop, rendering, XNA/KNI type conversion, animation playback, authored audio, combat feedback, HUD, menu and reward presentation, input mapping, settings, profile/checkpoint file stores, and render capture.
 - `FpsFrenzy.Desktop` is the SDL2/OpenGL entry point and desktop mouse-capture adapter.
 - `FpsFrenzy.Android` is the Android activity plus touch and sensor integration. Gyro is optional and never required for installation.
@@ -17,13 +17,13 @@ All projects enable nullable reference types, deterministic builds, recommended 
 
 ## Application and run lifecycle
 
-The application opens on a live, slowly orbiting arena view with the simulation paused. Main-menu choices include Continue when a valid checkpoint exists, Start New Run, Character, Inventory, Armory, Abilities, Proficiencies, Loadout, difficulty/Threat Tier selection, Records, Settings, Accessibility, and Quit. The first new run opens a compact controls/objective card. Losing focus or opening the pause menu freezes both simulation and enemy animation.
+The application opens on generated, text-free orbital-station title key art while the simulation remains paused behind it. The main menu groups Play, Operative, Arsenal, mode-tabbed Records, Settings, and Quit. Play exposes independent Continue/New actions for Arena and Adventure plus Debug Lab. Starting over when that mode has a checkpoint requires explicit confirmation. Losing focus or opening the pause menu freezes both simulation and enemy animation.
 
-`GameSimulation(ContentCatalog, RunConfiguration)` is the campaign entry point. `RunConfiguration` carries arena ID, seed, one of six combat difficulties, Threat Tier, two starting weapon sets, persistent progression, God Mode, first-run status, unlocked upgrade IDs, and an optional schema-4 checkpoint. The legacy constructor and Training Ring wave data remain available as development fixtures.
+`GameSimulation(ContentCatalog, RunConfiguration)` is the campaign entry point. `RunConfiguration` carries `GameMode`, arena/Adventure ID, seed, one of six combat difficulties, Threat Tier, two starting weapon sets, persistent progression, God Mode, first-run status, unlocked upgrade IDs, and the applicable optional checkpoint. The legacy constructor and Training Ring wave data remain available as development fixtures.
 
 For a release run, `RunDirector` deterministically selects three authored sectors without replacement. The first profile run uses the authored onboarding order; later runs derive sector and encounter order from the seed. Each sector schedules one Purge, one Relay Defense, and one Elite Hunt, for nine encounters total. The first encounter of the onboarding run is always Purge. After the ninth reward, the director switches to the central three-phase Breach Walker encounter.
 
-The high-level state flow is:
+The high-level Arena state flow is:
 
 ```text
 Main/Loadout
@@ -36,6 +36,8 @@ Main/Loadout
 ```
 
 `RunPhase`, `EncounterObjectiveType`, `RunSnapshot`, `UpgradeOffer`, and combat events expose this state without coupling Core to the HUD. Reward selection calls `ChooseUpgrade(string upgradeId)`; simulation is held while the choice menu is open. Checkpoints represent the next encounter rather than a mid-fight snapshot.
+
+Adventure uses a separate `AdventureDirector` and `AdventureSnapshot`: stage entry leads through free exploration, objective interaction, optional chest/lore branches, an explicitly unlocked exit lift, a floor boon and committed checkpoint, then the next generated floor. Transmissions do not consume or block a nearby world interaction. After three floors, the authored Core Chamber starts with two shield controls before the Core Warden becomes vulnerable. Adventure resumes reconstruct the current stage entrance rather than serializing live enemies, gates, or visited-map state.
 
 ## Fixed simulation and presentation flow
 
@@ -56,7 +58,7 @@ Attack damage and projectile creation occur on `EnemyAttackImpact`, not when an 
 
 ## Arena, objectives, and spawning
 
-Orbital Depot is a continuously traversable 72-by-56-meter arena built from four readable station quadrants around a recovery hub and boss floor. Release schema 3 uses `OpenArena`: sector bounds remain objective, lighting, portal-weighting, floor-marking, and HUD metadata only. No player, enemy, or boss clamp uses them. The floor and visibly matching outer bulkheads are the only release collision roles; decorative machinery is non-colliding and stays overhead or beyond the walls.
+Orbital Depot is a continuously traversable 72-by-56-meter arena built from four readable station quadrants around a recovery hub and boss floor. Release schema 3 uses `OpenArena`: sector bounds remain objective, lighting, portal-weighting, floor-marking, and HUD metadata only. No player, enemy, or boss clamp uses them. Its visible floor is partitioned into non-overlapping regions, outer bulkheads meet without positive-volume intersections, and dressing is restricted to bounded flush wall mounts. Validation rejects visible overlap, out-of-bounds placement, floor penetration, floating props, missing mount metadata, and player-clearance violations.
 
 Sector pressure is data-driven and keeps the same encounter population at every named difficulty:
 
@@ -72,6 +74,14 @@ Spawn selection considers every arena portal, prefers the active sector, rejects
 
 Collision, visibility, and navigation flags remain independent, so decorative station dressing never creates invisible walls. The player is an upright 1.8-meter Bepu capsule with a 7.5 m/s target speed, moderate air acceleration, and approximately 1.2-meter jump height. A 0.75-meter grid supports four-direction A*. Swept projectile tests prevent tunneling.
 
+## Adventure generation and objectives
+
+`DungeonGenerator` uses a versioned PCG integer stream and independent per-floor sub-seeds. A 48-by-40 integer grid at two meters per cell constrains floors to 96 by 80 meters. Non-overlapping rectangular rooms are joined by four-meter-wide axis-aligned corridors; a deterministic spanning path is augmented with bounded loops and optional branches, then the walkable-cell union is merged into floor, wall, and flush-ceiling primitives. The same Adventure ID, positive 32-bit seed, generator version, and floor index reproduce the room graph, geometry, roles, objectives, decoration sockets, and enemy composition across desktop and Android.
+
+Generation validates occupancy, bounds, connectivity, objective order, spawns, 3.8-meter vertical and 1.2-meter lateral clearance, decoration mounts, and positive-volume geometry intersections. It retries with up to 32 deterministic salts before selecting a validated fixed fallback. Maintenance Deck has eight rooms and two chests, Fabrication Ring ten rooms and three chests, and Signal Core nine rooms and three chests; every floor also guarantees a persistent lore terminal. Chest loot guarantees up to two missing quickbar weapon families per opening and otherwise uses a higher weapon roll so the ten-family arsenal can be explored during Adventure. Toggleable energy-gate colliders feed the same enabled-state query used by player/enemy movement, A*, hitscan, projectiles, and line of sight. Patrol groups are dormant until line-of-sight or objective activation and no more than eight enemies may be alerted.
+
+The floors use arcing conduits, timed fabrication lasers, and signal-surge pads. Story beats are skippable radio text and terminal panels, while discovered lore persists in the shared profile. The north-up HUD map reveals visited room and corridor cells; the expanded pause map adds player, objective, locked-door, exit, cache, and lore markers without revealing undiscovered secrets.
+
 ## Weapons, difficulty, upgrades, and persistence
 
 Ten `WeaponArchetypeDefinition` files and 50 `WeaponBaseDefinition` records resolve into immutable runtime definitions. The families are Pulse, SMG, Burst, Scatter, Precision, Beam, Plasma, Arc, Heavy, and Experimental. Typed delivery, trigger, motion, and effect definitions cover hitscan/projectile/beam weapons, semi/automatic/burst/charge/continuous/spool fire, straight/ballistic/homing/returning motion, and pierce, ricochet, splash, chain, cluster, split, pull, knockback, damage-over-time, stun, ramping, and weak-point bonuses. `tools/Sync-WeaponContent.ps1` validates source models and MGCB registration without C# catalog edits.
@@ -80,17 +90,18 @@ All 50 bases are selectable as Common, affix-free armory issues on a fresh profi
 
 Precision weapons use a true 4x camera FOV, 42% scoped look sensitivity, low magazines, slow cadence, and authored direct-hit weak-point multipliers. Enemy head/core volumes are data-authored; splash and chain damage deliberately bypass weak-point bonuses.
 
-`DifficultyDefinition` supplies Casual, Easy, Normal, Hard, Very Hard, and Extreme combat packages. Difficulty scales enemy health/damage, attack interval, projectile speed, and tells while preserving minimum tells. Threat Tier independently controls Item Power, rarity, XP/AP, and its existing health/damage scale. The two packages compose multiplicatively without changing encounter population or rewards.
+`DifficultyDefinition` supplies Casual, Easy, Normal, Hard, Very Hard, and Extreme packages. Difficulty scales enemy health/damage, attack interval, projectile speed, and tells while preserving minimum tells. It also makes health/ammo drops and their refill amounts scarcer as difficulty rises, while adding progressively stronger rarity luck. Threat Tier independently controls Item Power, its base rarity distribution, XP/AP, and its existing health/damage scale. The two packages compose multiplicatively without changing encounter population or the seed-authored roster.
 
 The 18 one-rank run boons are immutable definitions. `RunModifiers` owns only the IDs selected for the current run and computes effects on demand; shared weapon definitions are never mutated. Persistent level/talents, family proficiency, equipment ability mastery, stash loot, and threat unlocks commit once at recovery/reward checkpoints.
 
-Three independent stores live under the platform's local application-data `FPSFrenzy` directory:
+Four independent stores live under the platform's local application-data `FPSFrenzy` directory:
 
 - `settings.json` preserves controls, audio, accessibility, and God Mode.
-- `profile-v2.json` (schema 3) plus its generation-matched stash store RPG progression, difficulty, both starter sets, records, and unlimited inventory.
+- `profile-v2.json` (schema 6) plus its generation-matched stash store shared RPG progression, difficulty, both starter sets, mode-specific records, lore, completion state, and unlimited inventory.
 - `run-checkpoint-v4.json` stores deterministic campaign state, difficulty, both sets and independent hand states, issued instances, recovery loot, and pending progression.
+- `adventure-checkpoint-v1.json` stores committed Adventure stage-entry state independently of the Arena checkpoint.
 
-Profile/stash generations and checkpoints use atomic replacement with backup recovery. Missing, corrupt, generation-mismatched, inaccessible, or unsupported data falls back safely without damaging settings. Version-two profiles and version-three checkpoints migrate in place. A checkpoint is saved only after recovery and reward selection; Defeat commits pending encounter progression, while explicit abandonment discards it.
+Profile/stash generations and checkpoints use atomic replacement with backup recovery. Missing, corrupt, generation-mismatched, inaccessible, or unsupported data falls back safely without damaging settings. Legacy profiles through schema 5 and supported Arena checkpoints migrate in place. Arena saves after recovery and reward selection; Adventure saves at run entry and after each floor boon, so a mid-floor retry reconstructs the committed stage entrance and discards uncommitted floor rewards.
 
 God Mode is a persisted setting routed to `GameSimulation.SetPlayerInvulnerable`. It defaults off, blocks only incoming player damage, never heals the player, and leaves enemies, weapons, objectives, pickups, score, and unlocks unchanged. Once enabled during a run, `RunDirector` retains the marker even if it is later disabled. God Mode results remain visible but cannot replace the best unassisted record.
 
@@ -115,7 +126,7 @@ The renderer remains Reach-compatible and non-PBR. Arena and prop passes use `Ba
 
 Visual calibration creates world transforms from authored height and ground anchors rather than animated bounding spheres. Ground and hover offsets prevent foot penetration and floating, movement direction drives facing, and camera-right health bars stay billboarded. Weapons use normalized canonical forward/up axes, explicit muzzle/grip anchors, and validated camera-away muzzle orientation. They render model-only after a depth clear to avoid wall clipping—no placeholder primitive hands or calibration cubes are attached—and add procedural equip, fire recoil, reload arc, charge, overheat/vent, recovery, holster/swap, movement bob, and idle sway. Every family has an authored ADS FOV and focus frame; Precision ADS adds its dedicated 4x scope and weak-point reticle.
 
-The safe-area HUD shows health, weapon resource state, sector/encounter/objective progress, score, boss phase/health, reward choices, reticle and hit confirmation, subtitles, God Mode state, and the enemy compass. Enemy bearings behind the camera pin to compass edges; height differences receive chevrons, and overlapping bearings cluster.
+The safe-area HUD shows health, weapon resource state, sector/floor objectives, score, boss phase/health, reward choices, Adventure transmissions and minimap, seed/version/hash diagnostics, reticle and hit confirmation, subtitles, God Mode state, and the enemy compass. Adventure additionally shows explored rooms, opened/total chests, lore, exit lock/readiness and distance, plus contextual chest, terminal, objective, and lift prompts. Stage entry uses a reduced-motion-aware descent transition. Enemy bearings behind the camera pin to compass edges; height differences receive chevrons, and overlapping bearings cluster.
 
 ## Audio and menus
 
@@ -124,11 +135,11 @@ Runtime audio is compiled from selected CC0 source files rather than generated o
 - Kenney Sci-Fi Sounds supplies portals, gates, impacts, machinery, explosions, and destruction cues.
 - Kenney Digital Audio supplies energy weapon, charge, and upgrade cues.
 - Kenney UI Audio supplies hover, confirm, back, toggle, and results interaction cues.
-- Dark Sci-Fi Audio supplies menu, intermission, combat, boss, results, and victory music.
+- Dark Sci-Fi Audio supplies menu, Adventure exploration (`sector`), intermission, combat, boss, results, and victory music.
 
-World enemy/impact cues receive distance attenuation and stereo pan from the listener transform. First-person weapon and UI cues remain non-spatial. Master, Music, and SFX volumes are independent; subtitle captions remain available. The audio layer tolerates missing audio hardware and platform voice-limit drops so headless capture and dense combat do not fail the run.
+World enemy/impact cues receive distance attenuation and stereo pan from the listener transform. First-person weapon and UI cues remain non-spatial. Master, Music, and SFX volumes are independent; subtitle captions remain available. Adventure exploration maps to `sector`, alert combat to `pulse`, floor rewards to `airy`, and Core Warden to `urgent`. Music changes use a 0.35-second fade-out, 0.45-second fade-in, and 1.5-second combat-clear grace period. The audio layer tolerates missing audio hardware and platform voice-limit drops so headless capture and dense combat do not fail the run.
 
-Menu input supports keyboard, gamepad, pointer, and touch. Transitions wait for activation controls to return to neutral, preventing a click, Space, or gamepad A press from leaking into gameplay. Settings cover volume, sensitivities, FOV, 30/60 FPS, and God Mode. Accessibility covers reduced flash, screen shake, camera bob, high-contrast reticle, large HUD text, subtitles, toggle ADS, and color-vision mapping.
+Menus and overlays use Oxanium SpriteFonts over scaled dark-glass panels with cyan focus, amber warnings, teal success, coral alerts, and redundant color-vision cues. Layout derives from a 1280-by-720 reference using the safe-area minimum axis; large text adds 1.25x scaling, with wrapping, ellipsis, detail panes, and clipped row viewports for dense pages. Viewports expose a proportional scroll thumb, arrow buttons, current range, mouse-wheel input, touch dragging, pointer selection, and focus-following keyboard/gamepad navigation. Selection brackets fill over 160 ms; Reduced UI Motion resolves immediately and Reduced Flash removes pulsing/glow. Keyboard, gamepad, pointer, and touch share focus-retaining, input-neutral transitions. Controller actions persist in `settings.json`; the rebinding page captures a replacement button and swaps conflicts. Defaults are A/Cross for Jump, X/Square for Activate/Use, and D-pad Down for Reload. The Adventure seed editor accepts decimal 1 through 2,147,483,647 by direct typing or a controller/touch keypad.
 
 ## Capture and visual verification
 
@@ -145,7 +156,7 @@ Menu input supports keyboard, gamepad, pointer, and touch. Transitions wait for 
 
 ## Content validation and performance budgets
 
-Definitions and provenance are versioned JSON loaded with `System.Text.Json`. Startup and tests validate IDs and cross-references, all 50 weapon bases, typed behaviors/effects, handedness, scopes/grips, canonical axes and camera-away muzzles, enemy weak points, difficulty composition, portals, objectives, animation bindings, texture sampling, and open-arena collision/navigation. Release validation rejects interior static colliders. The content processor rejects missing clips or albedo, invalid transforms, and skeletons above 72 bones. The machine-readable asset manifest records source URL, version, license, retained source files, generated runtime names, and orientation/assembly modifications.
+Definitions and provenance are versioned JSON loaded with `System.Text.Json`. Startup and tests validate IDs and cross-references, all 50 weapon bases, typed behaviors/effects, handedness, scopes/grips, canonical axes and camera-away muzzles, enemy weak points, Adventure recipes/objective order, canonical layout hashes, thousands of generated floors, Orbital Depot visible placement, animation bindings, texture sampling, and collision/navigation. The content processor rejects missing clips or albedo, invalid transforms, and skeletons above 72 bones. The machine-readable asset manifest records source URL, version, license, retained source files, generated runtime names, and orientation/assembly modifications.
 
 Training Ring and its legacy wave schema remain raw repository development fixtures and are not copied into the shipping MGCB catalog. The release Orbital Depot campaign uses sectors, generated encounters, reward progression, and the robot roster exclusively.
 

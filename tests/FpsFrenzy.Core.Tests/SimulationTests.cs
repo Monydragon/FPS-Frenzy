@@ -23,6 +23,365 @@ public sealed class SimulationTests
     }
 
     [Fact]
+    public void AdventureCheckpointBoonsRebuildRuntimeModifiers()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        AdventureDefinition adventure = catalog.Adventures["null-signal"];
+        AdventureCheckpoint checkpoint = new()
+        {
+            AdventureId = adventure.Id,
+            Seed = 424242,
+            GeneratorVersion = adventure.GeneratorVersion,
+            NextStageIndex = 1,
+            FloorsCompleted = 1,
+            BoonIds = ["reinforced-shell"],
+            RunExperienceEarned = 450,
+            RunLevelsGained = 1,
+            RunProficiencyExperience = new Dictionary<WeaponFamily, int> { [WeaponFamily.Pulse] = 90 },
+            RunCollectedItemIds = ["cache-item"],
+            RunRarityTotals = new Dictionary<ItemRarity, int> { [ItemRarity.Rare] = 1 },
+            RunHighestItemPower = 12,
+        };
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = adventure.Id,
+            Seed = checkpoint.Seed,
+            AdventureCheckpoint = checkpoint,
+            StartingWeaponId = "pulse-sidearm",
+        });
+
+        Assert.Contains("reinforced-shell", simulation.OwnedUpgradeIds);
+        Assert.Equal(120f, simulation.Player.MaximumHealth);
+        Assert.Equal(20f, simulation.RunModifiers.MaximumHealthBonus);
+        Assert.Equal(450, simulation.RunExperienceEarned);
+        Assert.Equal(90, simulation.RunProficiencyExperience[WeaponFamily.Pulse]);
+        Assert.Equal(1, simulation.RunEquipmentCollected);
+        Assert.Equal(12, simulation.RunHighestItemPower);
+        Assert.Contains("reinforced-shell", simulation.CreateAdventureCheckpoint()!.BoonIds);
+    }
+
+    [Fact]
+    public void AdventureStageEntryFacesTheFirstConnectedRoute()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = "null-signal",
+            Seed = 424242,
+            StartingWeaponId = "pulse-sidearm",
+        });
+        GeneratedDungeonFloor floor = Assert.IsType<GeneratedDungeonFloor>(simulation.GeneratedDungeonFloor);
+        GeneratedDungeonRoom start = floor.Rooms[0];
+        Vector3 route = Vector3.Normalize(floor.Rooms[start.Connections[0]].Center - start.Center);
+        Vector3 view = simulation.GetViewDirection();
+        view = Vector3.Normalize(new Vector3(view.X, 0f, view.Z));
+
+        Assert.True(Vector3.Dot(route, view) > 0.99f);
+    }
+
+    [Fact]
+    public void CoreWardenIsPresentButLockedUntilBothShieldControlsAreDisabled()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        AdventureDefinition adventure = catalog.Adventures["null-signal"];
+        AdventureCheckpoint checkpoint = new()
+        {
+            AdventureId = adventure.Id,
+            Seed = 424242,
+            GeneratorVersion = adventure.GeneratorVersion,
+            NextStageIndex = adventure.Floors.Count,
+            FloorsCompleted = adventure.Floors.Count,
+        };
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = adventure.Id,
+            Seed = checkpoint.Seed,
+            AdventureCheckpoint = checkpoint,
+            StartingWeaponId = "pulse-sidearm",
+        });
+
+        for (int tick = 0; tick < 180; tick++)
+        {
+            simulation.Step([]);
+        }
+
+        EnemyState boss = Assert.IsType<EnemyState>(simulation.ActiveBoss);
+        Assert.Equal("core-warden", boss.Definition.Id);
+        Assert.True(simulation.AdventureSnapshot!.BossInvulnerable);
+        Assert.Equal(EnemyActionState.Idle, boss.ActionState);
+        Assert.DoesNotContain(simulation.Projectiles, projectile => projectile.IsHostile);
+        Assert.Equal(simulation.Player.MaximumHealth, simulation.Player.Health);
+    }
+
+    [Fact]
+    public void BothCoreShieldControlsRemainContextActionsUntilTheBossUnlocks()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        AdventureDefinition adventure = catalog.Adventures["null-signal"];
+        AdventureCheckpoint checkpoint = new()
+        {
+            AdventureId = adventure.Id,
+            Seed = 424242,
+            GeneratorVersion = adventure.GeneratorVersion,
+            NextStageIndex = adventure.Floors.Count,
+            FloorsCompleted = adventure.Floors.Count,
+        };
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = adventure.Id,
+            Seed = checkpoint.Seed,
+            AdventureCheckpoint = checkpoint,
+            StartingWeaponId = "pulse-sidearm",
+            GodModeEnabled = true,
+        });
+
+        simulation.Step([]);
+        simulation.TeleportPlayerForTesting(new Vector3(-10f, 1.65f, 0f));
+        Assert.Equal("core-shield-west", simulation.NearbyAdventureBossControlId);
+        Assert.True(simulation.HasContextAction);
+        Interact(simulation);
+
+        Assert.Contains("core-shield-west", simulation.AdventureSnapshot!.CompletedInteractables);
+        Assert.Null(simulation.NearbyAdventureBossControlId);
+
+        simulation.TeleportPlayerForTesting(new Vector3(10f, 1.65f, 0f));
+        Assert.Equal("core-shield-east", simulation.NearbyAdventureBossControlId);
+        Assert.True(simulation.HasContextAction);
+        Interact(simulation);
+
+        Assert.Contains("core-shield-east", simulation.AdventureSnapshot!.CompletedInteractables);
+        Assert.Equal(AdventureRunPhase.BossActive, simulation.AdventureSnapshot.Phase);
+        while (simulation.AdventureStoryBeat is not null)
+        {
+            Interact(simulation);
+        }
+        Assert.False(simulation.HasContextAction);
+    }
+
+    [Fact]
+    public void DifficultyTradesSupplyFrequencyAndAmountForRarityLuck()
+    {
+        DifficultyDefinition casual = DifficultyCatalog.Get(DifficultyMode.Casual);
+        DifficultyDefinition normal = DifficultyCatalog.Get(DifficultyMode.Normal);
+        DifficultyDefinition extreme = DifficultyCatalog.Get(DifficultyMode.Extreme);
+
+        float casualHealthChance = DifficultyCatalog.ScaleHealthDropChance(casual.Mode, 0.20f);
+        float normalHealthChance = DifficultyCatalog.ScaleHealthDropChance(normal.Mode, 0.20f);
+        float extremeHealthChance = DifficultyCatalog.ScaleHealthDropChance(extreme.Mode, 0.20f);
+        Assert.True(casualHealthChance > normalHealthChance && normalHealthChance > extremeHealthChance);
+
+        float casualAmmoChance = DifficultyCatalog.ScaleAmmoDropChance(casual.Mode, casualHealthChance, 0.25f);
+        float normalAmmoChance = DifficultyCatalog.ScaleAmmoDropChance(normal.Mode, normalHealthChance, 0.25f);
+        float extremeAmmoChance = DifficultyCatalog.ScaleAmmoDropChance(extreme.Mode, extremeHealthChance, 0.25f);
+        Assert.True(casualAmmoChance > normalAmmoChance && normalAmmoChance > extremeAmmoChance);
+        Assert.True(DifficultyCatalog.ScaleSupplyAmount(casual.Mode, 20) >
+            DifficultyCatalog.ScaleSupplyAmount(normal.Mode, 20));
+        Assert.True(DifficultyCatalog.ScaleSupplyAmount(normal.Mode, 20) >
+            DifficultyCatalog.ScaleSupplyAmount(extreme.Mode, 20));
+        Assert.True(casual.RarityLuckBonus < normal.RarityLuckBonus &&
+            normal.RarityLuckBonus < extreme.RarityLuckBonus);
+
+        ContentCatalog catalog = LoadShippedCatalog();
+        int casualRareDrops = Enumerable.Range(0, 2_000).Count(serial =>
+            LootGenerator.Generate(424242, 100, 7, serial, ThreatTier.TierI, catalog,
+                rarityLuck: casual.RarityLuckBonus).Rarity >= ItemRarity.Rare);
+        int extremeRareDrops = Enumerable.Range(0, 2_000).Count(serial =>
+            LootGenerator.Generate(424242, 100, 7, serial, ThreatTier.TierI, catalog,
+                rarityLuck: extreme.RarityLuckBonus).Rarity >= ItemRarity.Rare);
+        Assert.True(extremeRareDrops > casualRareDrops,
+            $"Expected Extreme rarity luck to beat Casual ({extremeRareDrops} vs {casualRareDrops}).");
+    }
+
+    [Fact]
+    public void CoreChamberFootprintStaysAuthoredWhileWallDressingVariesBySeed()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        AdventureDefinition adventure = catalog.Adventures["null-signal"];
+        AdventureCheckpoint firstCheckpoint = new()
+        {
+            AdventureId = adventure.Id,
+            Seed = 424242,
+            GeneratorVersion = adventure.GeneratorVersion,
+            NextStageIndex = adventure.Floors.Count,
+            FloorsCompleted = adventure.Floors.Count,
+        };
+        AdventureCheckpoint secondCheckpoint = firstCheckpoint with { Seed = firstCheckpoint.Seed + 1 };
+        using GameSimulation first = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = adventure.Id,
+            Seed = firstCheckpoint.Seed,
+            AdventureCheckpoint = firstCheckpoint,
+            StartingWeaponId = "pulse-sidearm",
+        });
+        using GameSimulation second = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = adventure.Id,
+            Seed = secondCheckpoint.Seed,
+            AdventureCheckpoint = secondCheckpoint,
+            StartingWeaponId = "pulse-sidearm",
+        });
+
+        Assert.Equal(first.Arena.BoundsMin, second.Arena.BoundsMin);
+        Assert.Equal(first.Arena.BoundsMax, second.Arena.BoundsMax);
+        Assert.NotEqual(
+            first.Arena.Primitives.Where(item => item.Id.StartsWith("seed-panel", StringComparison.Ordinal))
+                .Select(item => item.Position).ToArray(),
+            second.Arena.Primitives.Where(item => item.Id.StartsWith("seed-panel", StringComparison.Ordinal))
+                .Select(item => item.Position).ToArray());
+        Assert.All(first.Arena.Primitives.Where(item => item.Id.StartsWith("seed-panel", StringComparison.Ordinal)),
+            item =>
+            {
+                Assert.False(item.HasCollision);
+                Assert.True(MathF.Abs(item.Position.Z) > 15.6f);
+            });
+    }
+
+    [Fact]
+    public void CompletingTheFloorObjectiveDisablesGateQueriesPhysicsAndNavigationTogether()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = "null-signal",
+            Seed = 424242,
+            StartingWeaponId = "pulse-sidearm",
+            GodModeEnabled = true,
+        });
+        GeneratedDungeonFloor floor = Assert.IsType<GeneratedDungeonFloor>(simulation.GeneratedDungeonFloor);
+        GeneratedDungeonGate gate = Assert.Single(floor.Gates);
+        Assert.Equal((true, true, true), simulation.GetAdventureGateState(gate.Id));
+
+        while (simulation.AdventureStoryBeat is not null)
+        {
+            Interact();
+        }
+
+        DungeonFloorRecipe recipe = catalog.Adventures["null-signal"].Floors[0];
+        foreach (AdventureObjectiveDefinition objective in recipe.Objectives)
+        {
+            foreach (GeneratedDungeonInteractable interactable in floor.Interactables
+                .Where(item => item.ObjectiveId == objective.Id)
+                .Take(objective.RequiredCount))
+            {
+                simulation.TeleportPlayerForTesting(interactable.Position);
+                Interact();
+            }
+
+            if (objective.Id == gate.UnlockObjectiveId)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal((false, false, false), simulation.GetAdventureGateState(gate.Id));
+        return;
+
+        void Interact()
+        {
+            simulation.Step([new PlayerCommand(
+                simulation.Tick + 1,
+                simulation.Player.Id,
+                Vector2.Zero,
+                Vector2.Zero,
+                PlayerButtons.Interact,
+                -1)]);
+            simulation.Step([]);
+        }
+    }
+
+    [Fact]
+    public void AdventureLiftAndBoonProgressThroughEveryFloorIntoTheCoreChamber()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        AdventureDefinition adventure = catalog.Adventures["null-signal"];
+        AdventureCheckpoint? checkpoint = null;
+        string[] boonIds = catalog.Upgrades.Keys.Order(StringComparer.Ordinal).Take(3).ToArray();
+
+        for (int floorIndex = 0; floorIndex < adventure.Floors.Count; floorIndex++)
+        {
+            using GameSimulation simulation = new(catalog, new RunConfiguration
+            {
+                Mode = GameMode.Adventure,
+                AdventureId = adventure.Id,
+                Seed = 424242,
+                AdventureCheckpoint = checkpoint,
+                StartingWeaponId = "pulse-sidearm",
+                GodModeEnabled = true,
+            });
+            GeneratedDungeonFloor floor = Assert.IsType<GeneratedDungeonFloor>(simulation.GeneratedDungeonFloor);
+            DungeonFloorRecipe recipe = adventure.Floors[floorIndex];
+            foreach (AdventureObjectiveDefinition objective in recipe.Objectives)
+            {
+                foreach (GeneratedDungeonInteractable interactable in floor.Interactables
+                    .Where(item => item.ObjectiveId == objective.Id)
+                    .Take(objective.RequiredCount))
+                {
+                    simulation.TeleportPlayerForTesting(interactable.Position);
+                    Interact(simulation);
+                }
+            }
+
+            Assert.All(simulation.AdventureSnapshot!.Objectives, objective => Assert.True(objective.Complete));
+            GeneratedDungeonInteractable lift = Assert.Single(floor.Interactables,
+                item => item.Kind == AdventureInteractableKind.Lift);
+            simulation.TeleportPlayerForTesting(lift.Position);
+            Assert.True(simulation.CanInteractWithAdventure(lift.Id));
+            Interact(simulation);
+            Assert.Equal(AdventureRunPhase.FloorReward, simulation.AdventureSnapshot!.Phase);
+
+            checkpoint = simulation.ChooseAdventureBoon(boonIds[floorIndex]);
+            Assert.Equal(floorIndex + 1, checkpoint.NextStageIndex);
+            Assert.Equal(floorIndex + 1, checkpoint.FloorsCompleted);
+        }
+
+        using GameSimulation bossStage = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = adventure.Id,
+            Seed = 424242,
+            AdventureCheckpoint = checkpoint,
+            StartingWeaponId = "pulse-sidearm",
+            GodModeEnabled = true,
+        });
+        Assert.Null(bossStage.GeneratedDungeonFloor);
+        Assert.Equal(AdventureStageKind.Boss, bossStage.AdventureSnapshot!.StageKind);
+        Assert.Equal(AdventureRunPhase.BossLocked, bossStage.AdventureSnapshot.Phase);
+    }
+
+    [Fact]
+    public void AdventureChestsGuaranteeWeaponExperimentsForEmptyQuickbarSlots()
+    {
+        ContentCatalog catalog = LoadShippedCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            Mode = GameMode.Adventure,
+            AdventureId = "null-signal",
+            Seed = 424242,
+            StartingWeaponId = "pulse-sidearm",
+            GodModeEnabled = true,
+        });
+        GeneratedDungeonFloor floor = Assert.IsType<GeneratedDungeonFloor>(simulation.GeneratedDungeonFloor);
+        GeneratedDungeonInteractable chest = floor.Interactables.First(item =>
+            item.Kind == AdventureInteractableKind.EquipmentCache);
+        int populatedBefore = simulation.PopulatedWeaponSlots.Count(populated => populated);
+
+        simulation.TeleportPlayerForTesting(chest.Position);
+        Assert.True(simulation.HasContextAction);
+        Interact(simulation);
+
+        Assert.Contains(chest.Id, simulation.AdventureSnapshot!.CompletedInteractables);
+        Assert.True(simulation.PopulatedWeaponSlots.Count(populated => populated) >= populatedBefore + 2);
+        Assert.True(simulation.PendingProgression.Equipment.Count(item => item.IsWeapon) >= 2);
+    }
+
+    [Fact]
     public void CommandCarriesStableIdentityAndTickedInput()
     {
         PlayerCommand command = new(
@@ -115,6 +474,18 @@ public sealed class SimulationTests
 
         Assert.Equal(2, simulation.Player.Weapons.Count);
         Assert.Equal("burst-carbine", simulation.Player.CurrentWeapon.Definition.Id);
+    }
+
+    private static void Interact(GameSimulation simulation)
+    {
+        simulation.Step([new PlayerCommand(
+            simulation.Tick + 1,
+            simulation.Player.Id,
+            Vector2.Zero,
+            Vector2.Zero,
+            PlayerButtons.Interact,
+            -1)]);
+        simulation.Step([]);
     }
 
     [Fact]

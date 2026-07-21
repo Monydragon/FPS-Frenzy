@@ -53,7 +53,8 @@ public sealed class KniInputSource
         Buttons gamePadButtons = GamepadGameplayBindings.CaptureButtons(gamePad);
         GamepadGameplayActions gamepadActions = GamepadGameplayBindings.Resolve(
             gamePadButtons,
-            _previousGamePadButtons);
+            _previousGamePadButtons,
+            _settings.ControllerBindings);
         _previousGamePadButtons = gamePadButtons;
         int centerX = graphicsDevice.Viewport.Width / 2;
         int centerY = graphicsDevice.Viewport.Height / 2;
@@ -110,8 +111,8 @@ public sealed class KniInputSource
         _previousDesktopAim = desktopAim;
         Set(ref buttons, PlayerButtons.AimDownSights,
             _settings.ToggleAimDownSights ? _desktopAdsToggled : desktopAim);
-        Set(ref buttons, PlayerButtons.Reload, keyboard.IsKeyDown(Keys.R) || gamePad.Buttons.X == ButtonState.Pressed);
-        Set(ref buttons, PlayerButtons.Jump, keyboard.IsKeyDown(Keys.Space) || gamePad.Buttons.A == ButtonState.Pressed);
+        Set(ref buttons, PlayerButtons.Reload, keyboard.IsKeyDown(Keys.R) || gamepadActions.Reload);
+        Set(ref buttons, PlayerButtons.Jump, keyboard.IsKeyDown(Keys.Space) || gamepadActions.Jump);
         Set(ref buttons, PlayerButtons.Interact, keyboard.IsKeyDown(Keys.E) ||
             gamepadActions.Interact);
         Set(ref buttons, PlayerButtons.Ability1, keyboard.IsKeyDown(Keys.Q) ||

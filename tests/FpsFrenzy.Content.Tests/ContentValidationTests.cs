@@ -17,8 +17,10 @@ public sealed class ContentValidationTests
 
         Assert.True(catalog.Validate().IsValid);
         Assert.Equal(50, catalog.Weapons.Count);
-        Assert.Equal(12, catalog.Enemies.Count);
-        Assert.Equal(6, catalog.Enemies.Values.Count(enemy => enemy.SchemaVersion == 2));
+        Assert.Equal(13, catalog.Enemies.Count);
+        Assert.Equal(7, catalog.Enemies.Values.Count(enemy => enemy.SchemaVersion == 2));
+        Assert.Contains("null-signal", catalog.Adventures);
+        Assert.Contains("core-warden", catalog.Enemies);
         Assert.Contains("training-ring", catalog.Arenas);
         Assert.Contains("orbital-depot", catalog.Arenas);
     }
@@ -109,6 +111,31 @@ public sealed class ContentValidationTests
     }
 
     [Fact]
+    public void OxaniumFontsAndAdventureMusicArePackagedAtAuthoredSettings()
+    {
+        string root = FindRepositoryRoot();
+        string content = Path.Combine(root, "Content");
+        string mgcb = File.ReadAllText(Path.Combine(content, "FpsFrenzyContent.mgcb"));
+        string hudFont = File.ReadAllText(Path.Combine(content, "Fonts", "OxaniumHud.spritefont"));
+        string bodyFont = File.ReadAllText(Path.Combine(content, "Fonts", "OxaniumBody.spritefont"));
+        string headingFont = File.ReadAllText(Path.Combine(content, "Fonts", "OxaniumHeading.spritefont"));
+        string sectorPath = Path.Combine(content, "Audio", "Music", "sector.ogg");
+
+        Assert.Contains("/build:Fonts/OxaniumHud.spritefont", mgcb, StringComparison.Ordinal);
+        Assert.Contains("/build:Fonts/OxaniumBody.spritefont", mgcb, StringComparison.Ordinal);
+        Assert.Contains("/build:Fonts/OxaniumHeading.spritefont", mgcb, StringComparison.Ordinal);
+        Assert.Contains("/build:Audio/Music/sector.ogg", mgcb, StringComparison.Ordinal);
+        Assert.Contains("<FontName>Oxanium-Regular.ttf</FontName>", hudFont, StringComparison.Ordinal);
+        Assert.Contains("<Size>20</Size>", hudFont, StringComparison.Ordinal);
+        Assert.Contains("<Size>22</Size>", bodyFont, StringComparison.Ordinal);
+        Assert.Contains("<FontName>Oxanium-SemiBold.ttf</FontName>", headingFont, StringComparison.Ordinal);
+        Assert.Contains("<Size>44</Size>", headingFont, StringComparison.Ordinal);
+        Assert.Equal(
+            "D5862627E6D0C424FC157EAFFAA5421BAE4F0BB177E7628D520BFB6A45AA9676",
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sectorPath))));
+    }
+
+    [Fact]
     public void SixWeaponsHaveDistinctProductionBehaviors()
     {
         string root = FindRepositoryRoot();
@@ -123,13 +150,13 @@ public sealed class ContentValidationTests
     }
 
     [Fact]
-    public void OrbitalDepotIsACompleteThreeSectorRobotCampaignArena()
+    public void OrbitalDepotIsACleanOpenRobotCampaignArena()
     {
         string root = FindRepositoryRoot();
         ContentCatalog catalog = ContentCatalog.LoadFromDirectory(Path.Combine(root, "Content", "Data"));
         ArenaDefinition arena = catalog.Arenas["orbital-depot"];
         EnemyDefinition[] releaseEnemies = catalog.Enemies.Values
-            .Where(enemy => enemy.SchemaVersion == 2)
+            .Where(enemy => enemy.SchemaVersion == 2 && enemy.Id != "core-warden")
             .ToArray();
 
         Assert.Equal(3, arena.SchemaVersion);
@@ -146,7 +173,7 @@ public sealed class ContentValidationTests
         });
         Assert.True(arena.BoundsMax.X - arena.BoundsMin.X >= 70f);
         Assert.True(arena.BoundsMax.Z - arena.BoundsMin.Z >= 54f);
-        Assert.True(arena.Props.Count >= 40);
+        Assert.Equal(24, arena.Props.Count);
         string[] expectedColliders =
         [
             "floor",
@@ -170,10 +197,24 @@ public sealed class ContentValidationTests
                 MathF.Abs(prop.Position.X) < 32f &&
                 MathF.Abs(prop.Position.Z) < 24f);
         Assert.Contains(arena.Primitives, primitive => !string.IsNullOrWhiteSpace(primitive.TextureAsset));
-        Assert.Contains(arena.Props, prop => prop.Id == "docked-cargo-craft");
-        Assert.All(
-            arena.Props.Where(prop => prop.Id is "north-comms-dish" or "north-west-generator" or "east-comms-relay"),
-            prop => Assert.True(prop.AnchorToGround));
+        Assert.Empty(ArenaPlacementValidator.Validate(arena));
+        Assert.False(arena.Primitives.Single(primitive => primitive.Id == "floor").IsVisible);
+        Assert.DoesNotContain(arena.Primitives, primitive =>
+            primitive.Id.Contains("truss", StringComparison.OrdinalIgnoreCase) ||
+            primitive.Id.Contains("overhead", StringComparison.OrdinalIgnoreCase) ||
+            primitive.Id.Contains("lane", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(arena.Props, prop =>
+            prop.Id.Contains("craft", StringComparison.OrdinalIgnoreCase) ||
+            prop.Id.Contains("balcony", StringComparison.OrdinalIgnoreCase) ||
+            prop.Id.Contains("gallery", StringComparison.OrdinalIgnoreCase) ||
+            prop.Id.Contains("rail", StringComparison.OrdinalIgnoreCase) ||
+            prop.Id.Contains("machine", StringComparison.OrdinalIgnoreCase));
+        Assert.All(arena.Props, prop =>
+        {
+            Assert.NotEqual(ArenaMountSurface.None, prop.MountSurface);
+            Assert.True(prop.PlacementSize.X > 0f && prop.PlacementSize.Y > 0f && prop.PlacementSize.Z > 0f);
+            Assert.True(prop.PlayerClearance >= 1.2f);
+        });
         Assert.True(arena.PickupSpawns.Count(pickup => pickup.Type == PickupType.Health) >= 3);
         Assert.True(arena.PickupSpawns.Count(pickup => pickup.Type == PickupType.Ammo) >= 3);
 
@@ -341,7 +382,7 @@ public sealed class ContentValidationTests
     }
 
     [Fact]
-    public void ThirdPartyManifestRecordsCc0Provenance()
+    public void ThirdPartyManifestRecordsLicenseProvenance()
     {
         string root = FindRepositoryRoot();
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
@@ -360,12 +401,14 @@ public sealed class ContentValidationTests
             "Kenney Space Kit",
             "Kenney Prototype Textures",
             "Kenney UI Pack - Sci-Fi",
+            "FPS Frenzy Title Menu Key Art",
             "Quaternius Animated Mech Pack",
             "Quaternius Sci-Fi Essentials Kit - Standard",
             "Kenney Sci-Fi Sounds",
             "Kenney Digital Audio",
             "Kenney UI Audio",
             "OpenGameArt Dark Sci-Fi Audio Pack",
+            "Oxanium",
         ];
 
         Assert.Equal(expectedPacks.Length, assets.GetArrayLength());
@@ -374,14 +417,22 @@ public sealed class ContentValidationTests
             assets.EnumerateArray().Select(asset => asset.GetProperty("pack").GetString()).Order());
         Assert.All(assets.EnumerateArray(), asset =>
         {
-            Assert.Equal("CC0 1.0", asset.GetProperty("license").GetString());
+            string pack = asset.GetProperty("pack").GetString()!;
+            string expectedLicense = pack switch
+            {
+                "Oxanium" => "SIL Open Font License 1.1",
+                "FPS Frenzy Title Menu Key Art" =>
+                    "Original project-generated asset; no third-party source image",
+                _ => "CC0 1.0",
+            };
+            Assert.Equal(expectedLicense, asset.GetProperty("license").GetString());
             Assert.False(string.IsNullOrWhiteSpace(asset.GetProperty("source").GetString()));
             Assert.False(string.IsNullOrWhiteSpace(asset.GetProperty("version").GetString()));
             Assert.False(string.IsNullOrWhiteSpace(asset.GetProperty("modifications").GetString()));
             string localRoot = asset.GetProperty("localRoot").GetString()!;
             JsonElement originals = asset.GetProperty("originalFiles");
             JsonElement locals = asset.GetProperty("localFiles");
-            Assert.True(originals.GetArrayLength() > 0);
+            Assert.True(originals.GetArrayLength() > 0 || pack == "FPS Frenzy Title Menu Key Art");
             Assert.True(locals.GetArrayLength() > 0);
             foreach (JsonElement localFile in locals.EnumerateArray())
             {

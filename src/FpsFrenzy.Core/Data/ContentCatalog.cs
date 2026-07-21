@@ -20,6 +20,7 @@ public sealed class ContentCatalog
         new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, EnemyDefinition> Enemies { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, ArenaDefinition> Arenas { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, AdventureDefinition> Adventures { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, WaveSetDefinition> WaveSets { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, UpgradeDefinition> Upgrades { get; } = StandardUpgradeCatalog.All
         .ToDictionary(definition => definition.Id, StringComparer.OrdinalIgnoreCase);
@@ -44,6 +45,7 @@ public sealed class ContentCatalog
         AddDirectory(Path.Combine(dataRoot, "Enemies"), catalog.Add, Read<EnemyDefinition>);
         AddDirectory(Path.Combine(dataRoot, "Arenas"), catalog.Add, Read<ArenaDefinition>);
         AddDirectory(Path.Combine(dataRoot, "Waves"), catalog.Add, Read<WaveSetDefinition>);
+        AddOptionalDirectory(Path.Combine(dataRoot, "Adventures"), catalog.Add, Read<AdventureDefinition>);
         string upgradesPath = Path.Combine(dataRoot, "Upgrades");
         if (Directory.Exists(upgradesPath))
         {
@@ -136,7 +138,8 @@ public sealed class ContentCatalog
         IEnumerable<Stream> upgrades,
         IEnumerable<Stream> weaponArchetypes,
         IEnumerable<Stream> weaponBaseSets,
-        IEnumerable<Stream>? weaponVisualSets = null)
+        IEnumerable<Stream>? weaponVisualSets = null,
+        IEnumerable<Stream>? adventures = null)
     {
         ContentCatalog catalog = new();
         foreach (Stream stream in weapons) catalog.Add(Read<WeaponDefinition>(stream));
@@ -160,6 +163,7 @@ public sealed class ContentCatalog
                 catalog.WeaponVisualCalibrations[definition.WeaponId] = definition.Visual;
             }
         }
+        foreach (Stream stream in adventures ?? []) catalog.Add(Read<AdventureDefinition>(stream));
 
         catalog.ResolveWeaponBases();
         catalog.Validate().ThrowIfInvalid();
@@ -173,6 +177,7 @@ public sealed class ContentCatalog
     private void Add(WeaponBaseDefinition definition) => WeaponBases.Add(definition.Id, definition);
     private void Add(EnemyDefinition definition) => Enemies.Add(definition.Id, definition);
     private void Add(ArenaDefinition definition) => Arenas.Add(definition.Id, definition);
+    private void Add(AdventureDefinition definition) => Adventures.Add(definition.Id, definition);
     private void Add(WaveSetDefinition definition) => WaveSets.Add(definition.Id, definition);
     private void Add(UpgradeDefinition definition) => Upgrades[definition.Id] = definition;
     private void Add(EquipmentBaseDefinition definition) => EquipmentBases[definition.Id] = definition;

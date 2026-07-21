@@ -9,7 +9,9 @@ public sealed class NavigationGrid
     private readonly float _cellSize;
     private readonly int _width;
     private readonly int _height;
-    private readonly bool[] _blocked;
+    private readonly int[] _blockCounts;
+    private readonly Dictionary<string, int[]> _obstacleCells = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _enabledObstacles = new(StringComparer.OrdinalIgnoreCase);
     private readonly PriorityQueue<int, float> _frontier;
     private readonly float[] _costs;
     private readonly int[] _previous;
@@ -20,10 +22,10 @@ public sealed class NavigationGrid
         _cellSize = arena.NavigationCellSize;
         _width = Math.Max(1, (int)MathF.Ceiling((arena.BoundsMax.X - arena.BoundsMin.X) / _cellSize));
         _height = Math.Max(1, (int)MathF.Ceiling((arena.BoundsMax.Z - arena.BoundsMin.Z) / _cellSize));
-        _blocked = new bool[_width * _height];
-        _frontier = new PriorityQueue<int, float>(_blocked.Length);
-        _costs = new float[_blocked.Length];
-        _previous = new int[_blocked.Length];
+        _blockCounts = new int[_width * _height];
+        _frontier = new PriorityQueue<int, float>(_blockCounts.Length);
+        _costs = new float[_blockCounts.Length];
+        _previous = new int[_blockCounts.Length];
 
         foreach (ArenaPrimitiveDefinition primitive in arena.Primitives)
         {
@@ -43,6 +45,7 @@ public sealed class NavigationGrid
             float minimumZ = primitive.Position.Z - (primitive.Size.Z * 0.5f) - clearanceRadius;
             float maximumZ = primitive.Position.Z + (primitive.Size.Z * 0.5f) + clearanceRadius;
 
+            HashSet<int> obstacleCells = [];
             for (int z = 0; z < _height; z++)
             {
                 for (int x = 0; x < _width; x++)
@@ -50,12 +53,49 @@ public sealed class NavigationGrid
                     Vector3 center = ToWorld(x, z, 0f);
                     if (center.X >= minimumX && center.X <= maximumX && center.Z >= minimumZ && center.Z <= maximumZ)
                     {
-                        _blocked[ToIndex(x, z)] = true;
+                        obstacleCells.Add(ToIndex(x, z));
                     }
                 }
             }
+            int[] indices = obstacleCells.Order().ToArray();
+            _obstacleCells[primitive.Id] = indices;
+            _enabledObstacles.Add(primitive.Id);
+            foreach (int index in indices)
+            {
+                _blockCounts[index]++;
+            }
         }
     }
+
+    public bool SetObstacleEnabled(string id, bool enabled)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (!_obstacleCells.TryGetValue(id, out int[]? cells) ||
+            _enabledObstacles.Contains(id) == enabled)
+        {
+            return false;
+        }
+
+        if (enabled)
+        {
+            _enabledObstacles.Add(id);
+            foreach (int index in cells)
+            {
+                _blockCounts[index]++;
+            }
+        }
+        else
+        {
+            _enabledObstacles.Remove(id);
+            foreach (int index in cells)
+            {
+                _blockCounts[index] = Math.Max(0, _blockCounts[index] - 1);
+            }
+        }
+        return true;
+    }
+
+    internal bool IsObstacleEnabled(string id) => _enabledObstacles.Contains(id);
 
     public List<Vector3> FindPath(Vector3 start, Vector3 goal)
     {
@@ -163,7 +203,7 @@ public sealed class NavigationGrid
         return -1;
     }
 
-    private bool IsWalkable(int x, int z) => x >= 0 && z >= 0 && x < _width && z < _height && !_blocked[ToIndex(x, z)];
+    private bool IsWalkable(int x, int z) => x >= 0 && z >= 0 && x < _width && z < _height && _blockCounts[ToIndex(x, z)] == 0;
     private int ToIndex(int x, int z) => (z * _width) + x;
     private (int X, int Z) FromIndex(int index) => (index % _width, index / _width);
     private (int X, int Z) ToCell(Vector3 position) => ((int)((position.X - _minimum.X) / _cellSize), (int)((position.Z - _minimum.Y) / _cellSize));

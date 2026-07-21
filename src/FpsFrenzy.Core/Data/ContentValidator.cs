@@ -345,8 +345,11 @@ public static class ContentValidator
                     .All(primitive => primitive.CollisionRole is ArenaCollisionRole.Floor or ArenaCollisionRole.OuterWall),
                     $"Open arena '{arena.Id}' cannot contain interior or unclassified colliders.", errors);
                 Require(arena.Primitives.Where(primitive => primitive.CollisionRole != ArenaCollisionRole.None)
-                    .All(primitive => primitive.HasCollision && primitive.IsVisible),
-                    $"Open arena '{arena.Id}' collision roles must be visible and colliding.", errors);
+                    .All(primitive => primitive.HasCollision),
+                    $"Open arena '{arena.Id}' collision roles must be colliding.", errors);
+                Require(arena.Primitives.Where(primitive => primitive.CollisionRole == ArenaCollisionRole.OuterWall)
+                    .All(primitive => primitive.IsVisible),
+                    $"Open arena '{arena.Id}' outer walls must be visible.", errors);
             }
             for (int index = 0; index < arena.EnemySpawns.Count; index++)
             {
@@ -372,6 +375,11 @@ public static class ContentValidator
                     $"Arena '{arena.Id}' prop '{prop.Id}' has a non-positive target span.", errors);
                 Require(IsInside(arena, prop.Position),
                     $"Arena '{arena.Id}' prop '{prop.Id}' is outside its bounds.", errors);
+            }
+
+            if (arena.Id.Equals("orbital-depot", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.AddRange(ArenaPlacementValidator.Validate(arena));
             }
 
             foreach (PickupSpawnDefinition pickup in arena.PickupSpawns)
@@ -540,6 +548,39 @@ public static class ContentValidator
                 Require(catalog.WeaponBases.ContainsKey(weaponId),
                     $"Weapon visual calibration '{weaponId}' has no matching weapon base.", errors);
             }
+        }
+
+        foreach (AdventureDefinition adventure in catalog.Adventures.Values)
+        {
+            Require(adventure.SchemaVersion == 1 &&
+                string.Equals(adventure.GeneratorVersion,
+                    Simulation.DungeonGenerator.CurrentGeneratorVersion, StringComparison.Ordinal),
+                $"Adventure '{adventure.Id}' has an unsupported schema or generator version.", errors);
+            Require(adventure.Floors.Count == 3,
+                $"Adventure '{adventure.Id}' must contain three generated floors.", errors);
+            Require(adventure.Floors.Select(floor => floor.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() ==
+                adventure.Floors.Count,
+                $"Adventure '{adventure.Id}' contains duplicate floor IDs.", errors);
+            foreach (DungeonFloorRecipe floor in adventure.Floors)
+            {
+                Require(floor.RoomCount is >= 6 and <= 12 && floor.ChestCount is >= 1 and <= 4 &&
+                    floor.Objectives.Count > 0,
+                    $"Adventure floor '{floor.Id}' has invalid room or objective counts.", errors);
+                Require(floor.EnemyGroups.SelectMany(group => group.Members)
+                    .All(member => member.Count > 0 && catalog.Enemies.ContainsKey(member.EnemyId)),
+                    $"Adventure floor '{floor.Id}' references an invalid enemy roster.", errors);
+                Require(floor.Objectives.Select(objective => objective.Id)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).Count() == floor.Objectives.Count &&
+                    floor.Objectives.All(objective => objective.RequiredCount > 0 &&
+                        (objective.RequiresObjectiveId is null || floor.Objectives.Any(required =>
+                            required.Id.Equals(objective.RequiresObjectiveId, StringComparison.OrdinalIgnoreCase)))),
+                    $"Adventure floor '{floor.Id}' has invalid objective dependencies.", errors);
+            }
+            Require(catalog.Enemies.ContainsKey(adventure.Boss.EnemyId),
+                $"Adventure '{adventure.Id}' references missing boss '{adventure.Boss.EnemyId}'.", errors);
+            Require(adventure.StoryBeats.Count > 0 && adventure.StoryBeats.All(beat =>
+                    !string.IsNullOrWhiteSpace(beat.Text) && beat.StageIndex >= 0 && beat.StageIndex <= 3),
+                $"Adventure '{adventure.Id}' has invalid story beats.", errors);
         }
 
         if (hasReleaseCampaign)

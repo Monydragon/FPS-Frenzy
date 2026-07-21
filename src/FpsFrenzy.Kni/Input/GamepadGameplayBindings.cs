@@ -1,3 +1,4 @@
+using FpsFrenzy.Kni.Settings;
 using Microsoft.Xna.Framework.Input;
 
 namespace FpsFrenzy.Kni.Input;
@@ -7,6 +8,8 @@ internal readonly record struct GamepadGameplayActions(
     bool Ability2,
     bool DedicatedFocus,
     bool Interact,
+    bool Jump,
+    bool Reload,
     int WeaponCycleDirection);
 
 internal static class GamepadGameplayBindings
@@ -20,19 +23,24 @@ internal static class GamepadGameplayBindings
         Buttons.Start, Buttons.Back,
     ];
 
-    internal static GamepadGameplayActions Resolve(Buttons current, Buttons previous)
+    internal static GamepadGameplayActions Resolve(
+        Buttons current,
+        Buttons previous,
+        GamepadControlBindings? bindings = null)
     {
-        int weaponCycleDirection = Pressed(current, previous, Buttons.Y) ||
-            Pressed(current, previous, Buttons.DPadRight)
+        bindings ??= new GamepadControlBindings();
+        int weaponCycleDirection = Pressed(current, previous, bindings.WeaponNext)
                 ? 1
-                : Pressed(current, previous, Buttons.B) || Pressed(current, previous, Buttons.DPadLeft)
+                : Pressed(current, previous, bindings.WeaponPrevious)
                     ? -1
                     : 0;
         return new GamepadGameplayActions(
-            IsDown(current, Buttons.LeftShoulder),
-            IsDown(current, Buttons.RightShoulder),
-            IsDown(current, Buttons.RightStick),
-            IsDown(current, Buttons.DPadUp),
+            IsDown(current, bindings.Ability1),
+            IsDown(current, bindings.Ability2),
+            IsDown(current, bindings.Focus),
+            IsDown(current, bindings.Interact),
+            IsDown(current, bindings.Jump),
+            IsDown(current, bindings.Reload),
             weaponCycleDirection);
     }
 
@@ -52,5 +60,28 @@ internal static class GamepadGameplayBindings
     private static bool Pressed(Buttons current, Buttons previous, Buttons button) =>
         IsDown(current, button) && !IsDown(previous, button);
 
+    private static bool Pressed(Buttons current, Buttons previous, GamepadBindingButton button) =>
+        Pressed(current, previous, ToButtons(button));
+
     private static bool IsDown(Buttons buttons, Buttons button) => (buttons & button) != 0;
+
+    private static bool IsDown(Buttons buttons, GamepadBindingButton button) =>
+        IsDown(buttons, ToButtons(button));
+
+    internal static Buttons ToButtons(GamepadBindingButton button) => button switch
+    {
+        GamepadBindingButton.A => Buttons.A,
+        GamepadBindingButton.B => Buttons.B,
+        GamepadBindingButton.X => Buttons.X,
+        GamepadBindingButton.Y => Buttons.Y,
+        GamepadBindingButton.LeftShoulder => Buttons.LeftShoulder,
+        GamepadBindingButton.RightShoulder => Buttons.RightShoulder,
+        GamepadBindingButton.LeftStick => Buttons.LeftStick,
+        GamepadBindingButton.RightStick => Buttons.RightStick,
+        GamepadBindingButton.DPadUp => Buttons.DPadUp,
+        GamepadBindingButton.DPadDown => Buttons.DPadDown,
+        GamepadBindingButton.DPadLeft => Buttons.DPadLeft,
+        GamepadBindingButton.DPadRight => Buttons.DPadRight,
+        _ => throw new ArgumentOutOfRangeException(nameof(button)),
+    };
 }

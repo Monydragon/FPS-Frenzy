@@ -264,6 +264,17 @@
       "modifications": "Selected interface elements renamed menu-emblem.png, menu-button.png, and menu-button-selected.png; runtime tinting matches the arena palette."
     },
     {
+      "source": "OpenAI built-in image generation",
+      "pack": "FPS Frenzy Title Menu Key Art",
+      "version": "1",
+      "originalFiles": [],
+      "localRoot": "Content/Textures/UI",
+      "localFiles": ["title-menu-background.png"],
+      "license": "Original project-generated asset; no third-party source image",
+      "generationDate": "2026-07-21",
+      "modifications": "Generated as text-free 16:9 industrial sci-fi key art with an operative, derelict orbital station, null-signal focal point, and protected title/menu space; imported unchanged."
+    },
+    {
       "source": "https://quaternius.com/packs/animatedmech.html",
       "pack": "Quaternius Animated Mech Pack",
       "version": "March 2021",
@@ -486,6 +497,7 @@
       "originalFiles": [
         "ogg/title.ogg",
         "ogg/airy.ogg",
+        "ogg/sector.ogg",
         "ogg/pulse.ogg",
         "ogg/urgent.ogg",
         "ogg/transmission.ogg",
@@ -495,14 +507,34 @@
       "localFiles": [
         "title.ogg",
         "airy.ogg",
+        "sector.ogg",
         "pulse.ogg",
         "urgent.ogg",
         "transmission.ogg",
         "victory.ogg"
       ],
       "license": "CC0 1.0",
-      "downloadDate": "2026-07-18",
-      "modifications": "Selected the six named OGG music/stinger files only; filenames and encoded audio are unchanged."
+      "downloadDate": "2026-07-21",
+      "modifications": "Selected the seven named OGG music/stinger files only; filenames and encoded audio are unchanged. sector.ogg SHA-256: d5862627e6d0c424fc157eaffaa5421bae4f0bb177e7628d520bfb6a45aa9676."
+    },
+    {
+      "source": "https://github.com/sevmeyer/oxanium/tree/master/fonts/ttf",
+      "pack": "Oxanium",
+      "version": "master retrieved 2026-07-21",
+      "originalFiles": [
+        "Oxanium-Regular.ttf",
+        "Oxanium-SemiBold.ttf",
+        "OFL.txt"
+      ],
+      "localRoot": "Content/Fonts",
+      "localFiles": [
+        "Oxanium-Regular.ttf",
+        "Oxanium-SemiBold.ttf",
+        "OFL-Oxanium.txt"
+      ],
+      "license": "SIL Open Font License 1.1",
+      "downloadDate": "2026-07-21",
+      "modifications": "Font binaries and license are unchanged. Compiled at 20 pt HUD, 22 pt body, and 44 pt heading sizes. Regular SHA-256: 2b9c2a53ee0a8248ab901463838cc81075b410724046a09683b3cc91870fe52a; SemiBold SHA-256: e2d77ec4ee67b0152166adf5d6393360550a012c2066e0d4589053e14a733cdc."
     }
   ]
 }
