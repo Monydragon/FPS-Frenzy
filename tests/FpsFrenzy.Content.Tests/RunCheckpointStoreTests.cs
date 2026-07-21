@@ -79,7 +79,8 @@ public sealed class RunCheckpointStoreTests : IDisposable
         Assert.True(store.Save(checkpoint));
         string path = Path.Combine(_directory, "checkpoint.json");
         File.WriteAllText(path, File.ReadAllText(path).Replace(
-            "\"SchemaVersion\": 5", "\"SchemaVersion\": 3", StringComparison.Ordinal));
+            $"\"SchemaVersion\": {RunCheckpoint.CurrentSchemaVersion}", "\"SchemaVersion\": 3",
+            StringComparison.Ordinal));
 
         RunCheckpoint migrated = Assert.IsType<RunCheckpoint>(store.Load());
 
@@ -89,6 +90,28 @@ public sealed class RunCheckpointStoreTests : IDisposable
         Assert.Equal(0, migrated.ActiveWeaponSetIndex);
         Assert.Equal("pulse-sidearm", migrated.WeaponQuickbar[0].RightHand?.WeaponBaseId);
         Assert.True(migrated.WeaponQuickbar[1].IsEmpty);
+    }
+
+    [Fact]
+    public void VersionFiveCheckpointMigratesPendingProgressionDefaults()
+    {
+        RunCheckpointStore store = CreateStore();
+        RunCheckpoint checkpoint = new()
+        {
+            Seed = 20,
+            ArenaId = "orbital-depot",
+            StartingWeaponId = "pulse-sidearm",
+        };
+        Assert.True(store.Save(checkpoint));
+        string path = Path.Combine(_directory, "checkpoint.json");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            $"\"SchemaVersion\": {RunCheckpoint.CurrentSchemaVersion}", "\"SchemaVersion\": 5",
+            StringComparison.Ordinal));
+
+        RunCheckpoint migrated = Assert.IsType<RunCheckpoint>(store.Load());
+
+        Assert.Equal(RunCheckpoint.CurrentSchemaVersion, migrated.SchemaVersion);
+        Assert.Equal(CraftingMaterialBundle.Zero, migrated.PendingProgression.DismantledMaterials);
     }
 
     [Theory]

@@ -60,6 +60,7 @@ public sealed class HudRenderer : IDisposable
             DrawCompass(simulation, safe);
             DrawHealth(simulation, safe);
             DrawWeapon(simulation, safe);
+            DrawAbilities(simulation, safe);
             DrawWeaponQuickbar(simulation, safe);
             DrawWaveAndScore(simulation, safe);
             DrawBossHealth(simulation, safe);
@@ -91,7 +92,7 @@ public sealed class HudRenderer : IDisposable
         Rectangle safe)
     {
         const int width = 392;
-        int height = debug.LabVisible ? 290 : 160;
+        int height = debug.LabVisible ? 344 : 160;
         int left = safe.Right - width - 18;
         int top = safe.Top + 18;
         DrawOutlined(
@@ -132,19 +133,26 @@ public sealed class HudRenderer : IDisposable
         {
             _font.Draw(_spriteBatch, "F11 WEAPON / ARENA LAB", new Vector2(left + 12, top + 162), heading, 1);
             _font.Draw(_spriteBatch,
-                $"{debug.WeaponName.ToUpperInvariant()}  SLOT {simulation.ActiveWeaponSlotIndex + 1}",
+                $"WEAPON {debug.WeaponIndex + 1}/{debug.WeaponCount}  {debug.WeaponName.ToUpperInvariant()}",
                 new Vector2(left + 12, top + 180), value, 1);
             _font.Draw(_spriteBatch,
-                $"{debug.DifficultyName.ToUpperInvariant()}  THREAT {debug.ThreatTier}  AI {(debug.AiFrozen ? "FROZEN" : "LIVE")}",
+                $"LB {debug.Ability1Name.ToUpperInvariant()}  RB {debug.Ability2Name.ToUpperInvariant()}",
                 new Vector2(left + 12, top + 198), value, 1);
-            _font.Draw(_spriteBatch, "J/K WEAPON  +/- DIFF  PGUP/DN THREAT",
+            _font.Draw(_spriteBatch,
+                $"{debug.DifficultyName.ToUpperInvariant()}  THREAT {debug.ThreatTier}  AI {(debug.AiFrozen ? "FROZEN" : "LIVE")}",
                 new Vector2(left + 12, top + 216), heading, 1);
-            _font.Draw(_spriteBatch, "I SPAWN  O FREEZE  T SECTOR  F12 RELOAD",
+            _font.Draw(_spriteBatch, "PAD Y/B WEAPON  LB/RB USE ABILITY",
                 new Vector2(left + 12, top + 234), heading, 1);
-            _font.Draw(_spriteBatch, debug.CalibrationAxes,
+            _font.Draw(_spriteBatch, "DPAD U/D ABILITY  R SPAWN  L FREEZE",
                 new Vector2(left + 12, top + 252), value, 1);
-            _font.Draw(_spriteBatch, debug.CalibrationAnchors,
+            _font.Draw(_spriteBatch, "J/K WEAPON  I SPAWN  O FREEZE  F12 RELOAD",
                 new Vector2(left + 12, top + 270), value, 1);
+            _font.Draw(_spriteBatch, debug.Status,
+                new Vector2(left + 12, top + 288), heading, 1);
+            _font.Draw(_spriteBatch, debug.CalibrationAxes,
+                new Vector2(left + 12, top + 306), value, 1);
+            _font.Draw(_spriteBatch, debug.CalibrationAnchors,
+                new Vector2(left + 12, top + 324), value, 1);
         }
     }
 
@@ -439,6 +447,45 @@ public sealed class HudRenderer : IDisposable
         }
     }
 
+    private void DrawAbilities(GameSimulation simulation, Rectangle safe)
+    {
+        List<string> abilityIds = simulation.Progression.AbilityMastery.EquippedActiveAbilityIds;
+        if (abilityIds.Count == 0)
+        {
+            return;
+        }
+
+        const int slotWidth = 224;
+        const int slotHeight = 29;
+        const int gap = 8;
+        int left = safe.Center.X - slotWidth - (gap / 2);
+        int top = safe.Bottom - 228;
+        for (int index = 0; index < 2; index++)
+        {
+            string controllerButton = index == 0 ? "LB" : "RB";
+            string? abilityId = index < abilityIds.Count ? abilityIds[index] : null;
+            string abilityName = abilityId is null
+                ? "EMPTY"
+                : abilityId.Replace('-', ' ').ToUpperInvariant();
+            float cooldown = abilityId is null ? 0f : simulation.AbilityCooldowns.GetValueOrDefault(abilityId);
+            bool ready = abilityId is not null && cooldown <= 0f;
+            int x = left + (index * (slotWidth + gap));
+            Color edge = ready ? new Color(90, 235, 205) : new Color(80, 105, 125);
+            DrawOutlined(new Rectangle(x, top, slotWidth, slotHeight),
+                new Color(5, 18, 28, 215), edge);
+            _font.Draw(_spriteBatch, $"{controllerButton}  {abilityName}",
+                new Vector2(x + 9, top + 9), ready ? Color.LightCyan : new Color(145, 164, 176), 1);
+            if (cooldown > 0f)
+            {
+                string seconds = $"{MathF.Ceiling(cooldown):0}";
+                Vector2 secondsSize = PixelFont.Measure(seconds, 1);
+                _font.Draw(_spriteBatch, seconds,
+                    new Vector2(x + slotWidth - secondsSize.X - 9, top + 9),
+                    new Color(255, 205, 75), 1);
+            }
+        }
+    }
+
     private void DrawWeaponQuickbar(GameSimulation simulation, Rectangle safe)
     {
         int totalWidth = Math.Min(920, safe.Width - 32);
@@ -447,18 +494,27 @@ public sealed class HudRenderer : IDisposable
         totalWidth = (cellWidth * WeaponQuickbarLoadout.SlotCount) + (gap * 9);
         int left = safe.Center.X - (totalWidth / 2);
         int top = safe.Bottom - 136;
+        _font.Draw(_spriteBatch, "B  PREVIOUS", new Vector2(left, top - 16), new Color(125, 210, 235), 1);
+        string nextHint = "Y  NEXT";
+        _font.Draw(_spriteBatch, nextHint,
+            new Vector2(left + totalWidth - PixelFont.Measure(nextHint, 1).X, top - 16),
+            new Color(125, 210, 235), 1);
 
         for (int slotIndex = 0; slotIndex < WeaponQuickbarLoadout.SlotCount; slotIndex++)
         {
             RuntimeWeaponSet set = simulation.GetWeaponSlotState(slotIndex);
+            EquipmentInstance? slotItem = simulation.GetWeaponSlotEquipment(slotIndex);
             bool active = slotIndex == simulation.ActiveWeaponSlotIndex;
             int x = left + (slotIndex * (cellWidth + gap));
             Rectangle cell = new(x, top, cellWidth, 43);
-            Color edge = active ? new Color(95, 238, 255) : new Color(62, 91, 112, 205);
+            Color rarityEdge = slotItem is null ? new Color(62, 91, 112, 205) : RarityColor(slotItem.Rarity);
+            Color edge = active ? new Color(95, 238, 255) : rarityEdge;
             DrawOutlined(cell, active ? new Color(10, 38, 51, 225) : new Color(5, 13, 22, 195), edge);
 
             string number = slotIndex == 9 ? "0" : (slotIndex + 1).ToString(CultureInfo.InvariantCulture);
-            _font.Draw(_spriteBatch, number, new Vector2(x + 5, top + 5), active ? Color.White : Color.LightGray, 1);
+            string family = CompactFamilyName(WeaponQuickbarLoadout.FamilyForSlot(slotIndex));
+            _font.Draw(_spriteBatch, $"{number} {family}", new Vector2(x + 5, top + 5),
+                active ? Color.White : rarityEdge, 1);
             WeaponState? right = set.RightHand;
             WeaponState? leftWeapon = ReferenceEquals(set.LeftHand, right) ? null : set.LeftHand;
             if (right is null)
@@ -484,6 +540,16 @@ public sealed class HudRenderer : IDisposable
         string compact = displayName.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
         return compact.Length <= maximumCharacters ? compact : compact[..maximumCharacters];
     }
+
+    private static string CompactFamilyName(WeaponFamily family) => family switch
+    {
+        WeaponFamily.Precision => "PREC",
+        WeaponFamily.Experimental => "EXPR",
+        WeaponFamily.Scatter => "SCAT",
+        WeaponFamily.Plasma => "PLAS",
+        WeaponFamily.Heavy => "HVY",
+        _ => family.ToString().ToUpperInvariant()[..Math.Min(4, family.ToString().Length)],
+    };
 
     private static string CompactAmmo(WeaponState weapon) => weapon.Definition.AmmoMode switch
     {
@@ -606,7 +672,9 @@ public sealed class HudRenderer : IDisposable
         }
 
         string title = $"{item.Rarity.ToString().ToUpperInvariant()}  {item.DisplayName.ToUpperInvariant()}";
-        string details = $"{item.PrimarySlot.ToString().ToUpperInvariant()}  ITEM POWER {item.ItemPower}  [E] TAKE";
+        string details = item.IsWeapon
+            ? $"{item.PrimarySlot.ToString().ToUpperInvariant()}  ITEM POWER {item.ItemPower}  WALK OVER TO COLLECT OR COMPARE"
+            : $"{item.PrimarySlot.ToString().ToUpperInvariant()}  ITEM POWER {item.ItemPower}  [E / DPAD UP] TAKE";
         int width = Math.Max((int)PixelFont.Measure(title, 2).X, (int)PixelFont.Measure(details, 1).X) + 34;
         int left = safe.Center.X - (width / 2);
         int top = safe.Bottom - 190;
@@ -686,6 +754,7 @@ public sealed class HudRenderer : IDisposable
             MenuPage.Difficulty => "DIFFICULTY",
             MenuPage.ThreatTier => "THREAT TIER",
             MenuPage.Recovery => "RECOVERY CACHE",
+            MenuPage.WeaponPickup => "WEAPON PICKUP",
             MenuPage.Records => "RECORDS",
             MenuPage.Tutorial => "BREACH BRIEFING",
             MenuPage.Reward => "CHOOSE AUGMENT",
@@ -721,7 +790,7 @@ public sealed class HudRenderer : IDisposable
             }
             else if (menu.Page == MenuPage.Loadout)
             {
-                DrawCentered("TEN WEAPON PRESETS  INDEPENDENT HANDS  TWO-HANDED RESERVES BOTH", safe.Center.X, safe.Center.Y - 155,
+                DrawCentered("TEN FAMILY SLOTS  SAME-FAMILY DUAL WIELD  TWO-HANDED RESERVES BOTH", safe.Center.X, safe.Center.Y - 155,
                     new Color(190, 220, 232), 1);
                 DrawCentered("SELECT A SLOT TO FILTER YOUR STASH", safe.Center.X, safe.Center.Y - 130,
                     Color.LightCyan, 1);
@@ -730,7 +799,7 @@ public sealed class HudRenderer : IDisposable
             {
                 DrawCentered("ALL 50 BASES ARE AVAILABLE  ISSUED GEAR IS COMMON AND RUN-BOUND",
                     safe.Center.X, safe.Center.Y - 155, new Color(190, 220, 232), 1);
-                DrawCentered("CHOOSE A WEAPON FOR THIS SET POSITION",
+                DrawCentered("CHOOSE A WEAPON FOR THIS FAMILY SLOT",
                     safe.Center.X, safe.Center.Y - 130, Color.LightCyan, 1);
             }
             else if (menu.Page == MenuPage.Character)
@@ -787,6 +856,28 @@ public sealed class HudRenderer : IDisposable
             {
                 DrawCentered("MISSED DROPS AND TWO GUARANTEED ITEMS HAVE BEEN RECOVERED",
                     safe.Center.X, safe.Center.Y - 150, Color.LightCyan, 1);
+            }
+            else if (menu.Page == MenuPage.WeaponPickup && menu.WeaponPickupDecision is { } pickupDecision)
+            {
+                EquipmentInstance offered = pickupDecision.OfferedItem;
+                EquipmentInstance? equipped = pickupDecision.EquippedItem;
+                DrawCentered(
+                    $"NEW  {offered.Rarity.ToString().ToUpperInvariant()}  {offered.DisplayName.ToUpperInvariant()}  IP {offered.ItemPower}",
+                    safe.Center.X, safe.Center.Y - 160, RarityColor(offered.Rarity), 2);
+                DrawCentered(
+                    equipped is null
+                        ? "CURRENT  EMPTY"
+                        : $"CURRENT  {equipped.Rarity.ToString().ToUpperInvariant()}  {equipped.DisplayName.ToUpperInvariant()}  IP {equipped.ItemPower}",
+                    safe.Center.X, safe.Center.Y - 128,
+                    equipped is null ? new Color(150, 170, 185) : RarityColor(equipped.Rarity), 1);
+                DrawCentered("REPLACE KEEPS THE OLD WEAPON IN INVENTORY",
+                    safe.Center.X, safe.Center.Y - 102, Color.LightCyan, 1);
+                IReadOnlyList<string> comparisonLines = menu.GetWeaponPickupComparisonLines();
+                for (int lineIndex = 0; lineIndex < comparisonLines.Count; lineIndex++)
+                {
+                    DrawCentered(comparisonLines[lineIndex], safe.Center.X,
+                        safe.Center.Y - 80 + (lineIndex * 16), new Color(190, 220, 232), 1);
+                }
             }
             else if (menu.Page == MenuPage.Records)
             {
@@ -906,10 +997,12 @@ public sealed class HudRenderer : IDisposable
             }
 
             string help = menu.Page == MenuPage.Reward
-                ? "ARROWS CHOOSE  ENTER INSTALL"
+                ? "ARROWS/DPAD CHOOSE  ENTER/A INSTALL"
                 : menu.Page == MenuPage.Recovery
-                    ? "ARROWS INSPECT  ENTER TAKE  TAKE ALL TO CONTINUE"
-                : "CURSOR FREE  ARROWS ADJUST  ENTER SELECT  ESC BACK";
+                    ? "ARROWS/DPAD INSPECT  ENTER/A TAKE  TAKE ALL TO CONTINUE"
+                : menu.Page == MenuPage.WeaponPickup
+                    ? "ARROWS/DPAD/LS CHOOSE  ENTER/A CONFIRM  ESC/B LEAVE"
+                : "ARROWS/DPAD/LS ADJUST  ENTER/A SELECT  ESC/B BACK  LB/RB TABS";
             Vector2 helpSize = PixelFont.Measure(help, 1);
             _font.Draw(_spriteBatch, help,
                 new Vector2(safe.Center.X - (helpSize.X / 2f), safe.Bottom - 52), new Color(180, 220, 235), 1);

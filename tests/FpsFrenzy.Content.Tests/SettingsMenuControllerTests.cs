@@ -1,4 +1,5 @@
 using FpsFrenzy.Kni.Settings;
+using FpsFrenzy.Core;
 using FpsFrenzy.Core.Data;
 using FpsFrenzy.Core.Simulation;
 using FpsFrenzy.Kni.Progression;
@@ -49,6 +50,45 @@ public sealed class SettingsMenuControllerTests
         Assert.Equal(MenuAction.None, action);
         Assert.Equal(MenuPage.Settings, menu.Page);
         Assert.Equal(settingsIndex, layout.HitTest(settingsRow));
+    }
+
+    [Fact]
+    public void WeaponPickupMenuSupportsControllerResolutionAndBackLeavesTheDrop()
+    {
+        EquipmentInstance offered = new()
+        {
+            Id = "offered",
+            WeaponBaseId = "pulse-sidearm",
+            DisplayName = "Pulse Sidearm",
+            PrimarySlot = EquipmentSlot.RightHand,
+            Rarity = ItemRarity.Epic,
+            ItemPower = 30,
+        };
+        EquipmentInstance current = offered with
+        {
+            Id = "current",
+            Rarity = ItemRarity.Common,
+            ItemPower = 5,
+        };
+        PendingWeaponPickupDecision decision = new(new EntityId(44), 0, offered, current);
+        SettingsMenuController menu = new();
+        menu.OpenWeaponPickup(decision);
+
+        Assert.Equal(MenuPage.WeaponPickup, menu.Page);
+        Assert.Equal(3, menu.GetRows().Count);
+        Assert.Contains("+25 IP", menu.GetSupplementalValue(0));
+        MenuAction action = menu.Update(
+            new GameSettings(), new MenuInputSnapshot(MenuInputButtons.Accept), SafeArea);
+
+        Assert.Equal(MenuAction.WeaponPickupResolved, action);
+        Assert.Equal(WeaponPickupDecisionAction.Replace, menu.SelectedWeaponPickupAction);
+
+        SettingsMenuController leaveMenu = new();
+        leaveMenu.OpenWeaponPickup(decision);
+        action = leaveMenu.Update(
+            new GameSettings(), new MenuInputSnapshot(MenuInputButtons.Back), SafeArea);
+        Assert.Equal(MenuAction.WeaponPickupResolved, action);
+        Assert.Equal(WeaponPickupDecisionAction.Leave, leaveMenu.SelectedWeaponPickupAction);
     }
 
     [Fact]
@@ -327,7 +367,7 @@ public sealed class SettingsMenuControllerTests
         menu.OpenLoadout();
         IReadOnlyList<string> rows = menu.GetRows();
         Assert.Equal((WeaponQuickbarLoadout.SlotCount * 2) + 9 + 1, rows.Count);
-        Assert.Contains(rows, row => row.StartsWith("SLOT 0  RIGHT", StringComparison.Ordinal));
+        Assert.Contains(rows, row => row.StartsWith("SLOT 0 EXPERIMENTAL  RIGHT", StringComparison.Ordinal));
     }
 
     [Fact]

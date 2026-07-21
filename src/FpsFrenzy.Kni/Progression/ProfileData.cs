@@ -8,7 +8,7 @@ namespace FpsFrenzy.Kni.Progression;
 
 public sealed record ProfileData
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public long Generation { get; set; }
@@ -301,6 +301,14 @@ public sealed class ProfileStore
                 return versionThree;
             }
 
+            ProfileData? versionFour = LoadVersionFourPair(_path, _stashPath) ??
+                LoadVersionFourPair(_path + ".bak", _stashPath + ".bak");
+            if (versionFour is not null)
+            {
+                EnsureBaselineUnlocks(versionFour);
+                return versionFour;
+            }
+
             ProfileData? legacy = JsonSerializer.Deserialize<ProfileData>(File.ReadAllText(_path), SerializerOptions);
             return MigrateVersionOne(legacy) ?? ProfileData.CreateDefault();
         }
@@ -514,6 +522,33 @@ public sealed class ProfileStore
             Materials = materials,
             StarterWeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(
                 legacy.StarterWeaponSetA, legacy.StarterWeaponSetB),
+        };
+        return IsValid(migrated) ? migrated : null;
+    }
+
+    private static ProfileData? LoadVersionFourPair(string profilePath, string stashPath)
+    {
+        if (!File.Exists(profilePath) || !File.Exists(stashPath))
+        {
+            return null;
+        }
+
+        ProfileData? legacy = JsonSerializer.Deserialize<ProfileData>(File.ReadAllText(profilePath), SerializerOptions);
+        ProfileStashData? stash = JsonSerializer.Deserialize<ProfileStashData>(File.ReadAllText(stashPath),
+            SerializerOptions);
+        if (legacy is null || legacy.SchemaVersion != 4 || stash is null || stash.SchemaVersion != 4 ||
+            legacy.Generation <= 0 || legacy.Generation != stash.Generation || stash.Items is null ||
+            stash.Items.Any(item => !IsValid(item)) ||
+            stash.Items.Select(item => item.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != stash.Items.Count)
+        {
+            return null;
+        }
+
+        legacy.Stash = stash.Items;
+        ProfileData migrated = legacy with
+        {
+            SchemaVersion = ProfileData.CurrentSchemaVersion,
+            SelectedDifficulty = DifficultyCatalog.Normalize(legacy.SelectedDifficulty),
         };
         return IsValid(migrated) ? migrated : null;
     }

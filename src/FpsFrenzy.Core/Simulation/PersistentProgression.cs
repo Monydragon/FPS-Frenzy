@@ -82,6 +82,20 @@ public sealed class WeaponQuickbarLoadout
 {
     public const int SlotCount = 10;
 
+    public static IReadOnlyList<WeaponFamily> FamilyOrder { get; } =
+    [
+        WeaponFamily.Pulse,
+        WeaponFamily.SMG,
+        WeaponFamily.Burst,
+        WeaponFamily.Scatter,
+        WeaponFamily.Precision,
+        WeaponFamily.Beam,
+        WeaponFamily.Plasma,
+        WeaponFamily.Arc,
+        WeaponFamily.Heavy,
+        WeaponFamily.Experimental,
+    ];
+
     public List<WeaponPresetSlot> Slots { get; init; } = CreateEmptySlots();
 
     public WeaponPresetSlot this[int index] => index is >= 0 and < SlotCount && index < Slots.Count
@@ -99,6 +113,26 @@ public sealed class WeaponQuickbarLoadout
         slots[0] = WeaponPresetSlot.FromWeaponSet(setA);
         slots[1] = WeaponPresetSlot.FromWeaponSet(setB);
         return new WeaponQuickbarLoadout { Slots = slots };
+    }
+
+    public static WeaponFamily FamilyForSlot(int slotIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slotIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slotIndex, SlotCount);
+        return FamilyOrder[slotIndex];
+    }
+
+    public static int SlotForFamily(WeaponFamily family)
+    {
+        for (int index = 0; index < FamilyOrder.Count; index++)
+        {
+            if (FamilyOrder[index] == family)
+            {
+                return index;
+            }
+        }
+        throw new ArgumentOutOfRangeException(nameof(family), family,
+            "Only playable weapon families have quickbar slots.");
     }
 
     private static List<WeaponPresetSlot> CreateEmptySlots() =>
@@ -668,6 +702,7 @@ public sealed class PendingRunProgression
     public Dictionary<WeaponFamily, int> ProficiencyExperience { get; init; } = [];
     public Dictionary<string, int> AbilityPoints { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public List<EquipmentInstance> Equipment { get; init; } = [];
+    public CraftingMaterialBundle DismantledMaterials { get; set; } = CraftingMaterialBundle.Zero;
 
     public bool Commit(PlayerProgressionState progression, ContentCatalog catalog)
     {
@@ -686,6 +721,8 @@ public sealed class PendingRunProgression
         {
             progression.AbilityMastery.AddAbilityPoints(abilityId, amount, catalog);
         }
+
+        progression.Materials.Add(DismantledMaterials);
 
         HashSet<string> existingIds = progression.Stash.Select(item => item.Id)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -742,7 +779,8 @@ public static class LootGenerator
         ContentCatalog catalog,
         WeaponProficiencyState? proficiencies = null,
         ItemRarity? minimumRarity = null,
-        float rarityLuck = 0f)
+        float rarityLuck = 0f,
+        WeaponFamily? requiredWeaponFamily = null)
     {
         ulong state = Seed(runSeed, simulationTick, sourceEntity, dropSerial);
         int itemPower = NextInt(ref state, RpgProgressionMath.MinimumItemPower(threatTier),
@@ -753,13 +791,19 @@ public static class LootGenerator
             rarity = minimumRarity.Value;
         }
 
-        bool weaponDrop = NextFloat(ref state) < 0.35f;
+        if (requiredWeaponFamily.HasValue &&
+            !WeaponQuickbarLoadout.FamilyOrder.Contains(requiredWeaponFamily.Value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(requiredWeaponFamily));
+        }
+        bool weaponDrop = requiredWeaponFamily.HasValue || NextFloat(ref state) < 0.35f;
         WeaponDefinition? weapon = null;
         EquipmentBaseDefinition? equipment = null;
         if (weaponDrop)
         {
             WeaponDefinition[] eligibleWeapons = catalog.Weapons.Values
                 .Where(candidate => candidate.Family != WeaponFamily.None &&
+                    (!requiredWeaponFamily.HasValue || candidate.Family == requiredWeaponFamily.Value) &&
                     candidate.BaseTier is >= 1 and <= 5)
                 .OrderBy(candidate => candidate.Id, StringComparer.OrdinalIgnoreCase)
                 .ToArray();

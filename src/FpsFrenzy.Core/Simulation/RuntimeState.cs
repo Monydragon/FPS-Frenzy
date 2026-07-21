@@ -62,11 +62,27 @@ public enum CombatEventType
     ArmoryActivated,
     EquipmentDropped,
     EquipmentCollected,
+    WeaponPickupDecisionRequired,
+    WeaponCollected,
+    WeaponDismantled,
     RecoveryCacheOpened,
     ProgressionCommitted,
     AbilityActivated,
     WeaponSetSwapped,
 }
+
+public enum WeaponPickupDecisionAction
+{
+    Replace,
+    Dismantle,
+    Leave,
+}
+
+public sealed record PendingWeaponPickupDecision(
+    EntityId PickupId,
+    int SlotIndex,
+    EquipmentInstance OfferedItem,
+    EquipmentInstance? EquippedItem);
 
 public readonly record struct CombatEvent(
     CombatEventType Type,
@@ -314,6 +330,11 @@ public sealed class WeaponState
     {
         ReloadRemainingSeconds = 0f;
         ReloadDurationSeconds = 0f;
+        BurstShotsRemaining = 0;
+    }
+
+    public void CancelAttackState()
+    {
         BurstShotsRemaining = 0;
     }
 

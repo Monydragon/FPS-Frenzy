@@ -22,8 +22,7 @@ public sealed class KniInputSource
     private bool _touchAdsToggled;
     private bool _desktopAdsToggled;
     private bool _previousDesktopAim;
-    private bool _previousDPadLeft;
-    private bool _previousDPadRight;
+    private Buttons _previousGamePadButtons;
     private int _previousMouseWheel;
 
     public KniInputSource(
@@ -51,6 +50,11 @@ public sealed class KniInputSource
         KeyboardState keyboard = Keyboard.GetState();
         MouseState mouse = Mouse.GetState();
         GamePadState gamePad = GamePad.GetState(PlayerIndex.One);
+        Buttons gamePadButtons = GamepadGameplayBindings.CaptureButtons(gamePad);
+        GamepadGameplayActions gamepadActions = GamepadGameplayBindings.Resolve(
+            gamePadButtons,
+            _previousGamePadButtons);
+        _previousGamePadButtons = gamePadButtons;
         int centerX = graphicsDevice.Viewport.Width / 2;
         int centerY = graphicsDevice.Viewport.Height / 2;
 
@@ -93,7 +97,7 @@ public sealed class KniInputSource
             mouse.LeftButton == ButtonState.Pressed || gamePad.Triggers.Right > 0.2f);
         bool secondaryPressed = mouse.RightButton == ButtonState.Pressed || gamePad.Triggers.Left > 0.2f;
         bool dedicatedFocus = keyboard.IsKeyDown(Keys.LeftShift) || keyboard.IsKeyDown(Keys.RightShift) ||
-            gamePad.Buttons.LeftShoulder == ButtonState.Pressed;
+            gamepadActions.DedicatedFocus;
         ContextualSecondaryAction secondary = ContextualWeaponInput.Resolve(
             secondaryPressed, dedicatedFocus, isDualWielding);
         Set(ref buttons, PlayerButtons.FireLeft, secondary.FireLeft);
@@ -109,11 +113,11 @@ public sealed class KniInputSource
         Set(ref buttons, PlayerButtons.Reload, keyboard.IsKeyDown(Keys.R) || gamePad.Buttons.X == ButtonState.Pressed);
         Set(ref buttons, PlayerButtons.Jump, keyboard.IsKeyDown(Keys.Space) || gamePad.Buttons.A == ButtonState.Pressed);
         Set(ref buttons, PlayerButtons.Interact, keyboard.IsKeyDown(Keys.E) ||
-            gamePad.Buttons.Y == ButtonState.Pressed);
+            gamepadActions.Interact);
         Set(ref buttons, PlayerButtons.Ability1, keyboard.IsKeyDown(Keys.Q) ||
-            gamePad.Buttons.B == ButtonState.Pressed);
+            gamepadActions.Ability1);
         Set(ref buttons, PlayerButtons.Ability2, keyboard.IsKeyDown(Keys.F) ||
-            gamePad.Buttons.RightShoulder == ButtonState.Pressed);
+            gamepadActions.Ability2);
         int selectedSlot = ReadWeaponSlot(keyboard);
         if (_mouseWheelInitialized && mouse.ScrollWheelValue != _previousMouseWheel)
         {
@@ -123,18 +127,14 @@ public sealed class KniInputSource
                 weaponCount,
                 populatedWeaponSlots);
         }
-        bool dPadLeft = gamePad.DPad.Left == ButtonState.Pressed;
-        bool dPadRight = gamePad.DPad.Right == ButtonState.Pressed;
-        if (dPadLeft && !_previousDPadLeft)
+        if (gamepadActions.WeaponCycleDirection != 0)
         {
-            selectedSlot = CycleWeapon(currentWeaponSlot, -1, weaponCount, populatedWeaponSlots);
+            selectedSlot = CycleWeapon(
+                currentWeaponSlot,
+                gamepadActions.WeaponCycleDirection,
+                weaponCount,
+                populatedWeaponSlots);
         }
-        else if (dPadRight && !_previousDPadRight)
-        {
-            selectedSlot = CycleWeapon(currentWeaponSlot, 1, weaponCount, populatedWeaponSlots);
-        }
-        _previousDPadLeft = dPadLeft;
-        _previousDPadRight = dPadRight;
 
         _mouseWheelInitialized = true;
         _previousMouseWheel = mouse.ScrollWheelValue;

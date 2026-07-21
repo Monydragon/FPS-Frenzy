@@ -5,7 +5,7 @@ namespace FpsFrenzy.Kni.Progression;
 
 public sealed record RunLoadoutOverlay
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public long ProfileGeneration { get; init; }
@@ -70,6 +70,10 @@ public sealed class RunLoadoutOverlayStore
             }
             RunLoadoutOverlay? overlay = JsonSerializer.Deserialize<RunLoadoutOverlay>(
                 File.ReadAllText(_path), SerializerOptions);
+            if (overlay?.SchemaVersion == 1)
+            {
+                overlay = overlay with { SchemaVersion = RunLoadoutOverlay.CurrentSchemaVersion };
+            }
             if (overlay is null || overlay.SchemaVersion != RunLoadoutOverlay.CurrentSchemaVersion ||
                 overlay.ProfileGeneration <= 0 || overlay.ProfileGeneration > profile.Generation ||
                 overlay.RunSeed != checkpoint.Seed ||

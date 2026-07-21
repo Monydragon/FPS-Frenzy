@@ -49,7 +49,7 @@ public sealed record WeaponCheckpointState
 
 public sealed record RunCheckpoint
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public int Seed { get; init; }

@@ -18,7 +18,8 @@ public sealed class RunLoadoutOverlayStoreTests : IDisposable
         WeaponQuickbarLoadout quickbar = WeaponQuickbarLoadout.FromLegacy(
             new WeaponSetLoadout { RightHand = StarterWeaponReference.Issue("pulse-sidearm") },
             new WeaponSetLoadout());
-        quickbar.Slots[9] = new WeaponPresetSlot
+        int precisionSlot = WeaponQuickbarLoadout.SlotForFamily(FpsFrenzy.Core.Data.WeaponFamily.Precision);
+        quickbar.Slots[precisionSlot] = new WeaponPresetSlot
         {
             RightHand = StarterWeaponReference.Issue("longshot-rifle"),
         };
@@ -30,12 +31,38 @@ public sealed class RunLoadoutOverlayStoreTests : IDisposable
             RunSeed = checkpoint.Seed,
             CheckpointEncounterIndex = checkpoint.NextEncounterIndex,
             WeaponQuickbar = quickbar,
-            ActiveWeaponSlotIndex = 9,
+            ActiveWeaponSlotIndex = precisionSlot,
         }));
         RunLoadoutOverlay restored = Assert.IsType<RunLoadoutOverlay>(store.Load(profile, checkpoint));
 
-        Assert.Equal(9, restored.ActiveWeaponSlotIndex);
-        Assert.Equal("longshot-rifle", restored.WeaponQuickbar[9].RightHand?.WeaponBaseId);
+        Assert.Equal(precisionSlot, restored.ActiveWeaponSlotIndex);
+        Assert.Equal("longshot-rifle", restored.WeaponQuickbar[precisionSlot].RightHand?.WeaponBaseId);
+    }
+
+    [Fact]
+    public void VersionOneOverlayMigratesToTheFamilySlotSchema()
+    {
+        Directory.CreateDirectory(_directory);
+        ProfileStore profileStore = new(Path.Combine(_directory, "profile.json"));
+        ProfileData profile = ProfileData.CreateDefault();
+        Assert.True(profileStore.Save(profile));
+        RunCheckpoint checkpoint = CreateCheckpoint();
+        string path = Path.Combine(_directory, "overlay.json");
+        RunLoadoutOverlayStore store = new(path);
+        Assert.True(store.Save(new RunLoadoutOverlay
+        {
+            ProfileGeneration = profile.Generation,
+            RunSeed = checkpoint.Seed,
+            CheckpointEncounterIndex = checkpoint.NextEncounterIndex,
+            ActiveWeaponSlotIndex = 0,
+        }));
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            $"\"SchemaVersion\": {RunLoadoutOverlay.CurrentSchemaVersion}", "\"SchemaVersion\": 1",
+            StringComparison.Ordinal));
+
+        RunLoadoutOverlay migrated = Assert.IsType<RunLoadoutOverlay>(store.Load(profile, checkpoint));
+
+        Assert.Equal(RunLoadoutOverlay.CurrentSchemaVersion, migrated.SchemaVersion);
     }
 
     [Fact]

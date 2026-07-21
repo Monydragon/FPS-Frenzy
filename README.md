@@ -36,7 +36,7 @@ Desktop uses SDL2/OpenGL. Android uses OpenGL ES, landscape touch controls, and 
 
 ## Gameplay loop
 
-The main menu provides Continue/New Run, Character, Inventory, Armory, Abilities, Proficiencies, Difficulty/Threat Tier, Loadout, Debug Lab, Records, Settings, Accessibility, and Quit. Debug Lab is a non-persistent, invulnerable arena sandbox containing every release enemy and one equipment drop of each rarity; J/K or `[`/`]` cycles all 50 weapons. Inventory/loadout changes and free talent respecs are between-run or recovery-hub actions. A first-run card explains the controls and objectives.
+The main menu provides Continue/New Run, Character, Inventory, Armory, Abilities, Proficiencies, Difficulty/Threat Tier, Loadout, Debug Lab, Records, Settings, Accessibility, and Quit. The quickbar has one canonical slot for each family: Pulse, SMG, Burst, Scatter, Precision, Beam, Plasma, Arc, Heavy, and Experimental. Missing families auto-fill from ground drops without forcing a switch; competing drops pause for Replace, Dismantle, or Leave. Debug Lab is a non-persistent, invulnerable arena sandbox with all ten family slots populated, every release enemy, and one equipment drop of each rarity; J/K or `[`/`]` cycles all 50 weapons without restarting the arena. Inventory/loadout changes and free talent respecs are between-run or recovery-hub actions. A first-run card explains the controls and objectives.
 
 The complete loop is:
 
@@ -54,11 +54,11 @@ Checkpoints are written only after recovery and boon selection, so persistent XP
 - Look: mouse, right stick, or Android right look region; optional Android gyro adds fine aim
 - Fire Right: left mouse, right trigger, or right FIRE touch button
 - Fire Left: right mouse, left trigger, or left FIRE touch button
-- ADS: Shift, gamepad LB, or the Android ADS toggle
-- Interact/loot: E, gamepad Y, or the context touch prompt
-- Abilities: Q/F, gamepad B/RB, or the two ability touch buttons
+- ADS/focus: Shift, gamepad LT for a single weapon, gamepad RS while dual-wielding, or the Android ADS toggle
+- Interact/loot: E, gamepad D-pad Up, or the context touch prompt
+- Abilities: Q/F, gamepad LB/RB, or the two ability touch buttons
 - Reload both eligible hands: R, gamepad X, or reload touch button; either hand may keep firing while the other reloads
-- Select weapon set: 1/2 or mouse wheel, D-pad Left/Right, or the touch set-swap button
+- Select weapon slot: 1-0 or mouse wheel; gamepad Y/B or D-pad Right/Left cycles next/previous; touch has next/previous controls
 - Jump: Space, gamepad A, or JUMP touch button
 - Menus: arrow keys/D-pad or pointer/touch; Enter/Space/A selects; Escape/Back/B returns
 - Pause: Escape/Back, gamepad Start, or the Android PAUSE button
@@ -68,7 +68,7 @@ Checkpoints are written only after recovery and boon selection, so persistent XP
 - Debug rarity/loot showcase: F3 while the debug sandbox is enabled
 - Debug collision view: F4 while the debug sandbox is enabled
 - Debug stage controls: F5 restarts, F6/F7 move between stages, F8 toggles test invulnerability, and F9 completes the current encounter, reward, or boss
-- Weapon/Arena Lab: select Debug Lab from the main menu or press F11 during a run; use J/K or `[`/`]` for weapons, `-`/`+` for difficulty, Page Down/Page Up for Threat Tier, I to spawn, O to freeze AI, T to teleport sectors, and F12 to hot-reload numeric weapon JSON
+- Weapon/Arena Lab: select Debug Lab from the main menu or press F11 during a run; gamepad Y/B cycles all weapons, LB/RB activates the equipped test abilities, D-pad Up/Down cycles the LB/RB ability slots, and D-pad Right/Left spawns an enemy/freezes AI. Keyboard uses J/K or `[`/`]` for weapons, `-`/`+` for difficulty, Page Down/Page Up for Threat Tier, I to spawn, O to freeze AI, T to teleport sectors, and F12 to hot-reload numeric weapon JSON
 - Still capture: Shift+F12
 - Motion-frame capture: Shift+F11 starts or stops a 15-second, 60 FPS PNG sequence
 - Exit desktop: F10

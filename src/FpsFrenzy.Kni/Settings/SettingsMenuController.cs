@@ -23,6 +23,7 @@ public enum MenuPage
     Difficulty,
     ThreatTier,
     Recovery,
+    WeaponPickup,
     Records,
     Tutorial,
     Reward,
@@ -48,6 +49,7 @@ public enum MenuAction
     ProfileChanged,
     RecoveryItemSelected,
     RecoveryContinue,
+    WeaponPickupResolved,
     StartDebugLab,
 }
 
@@ -85,6 +87,7 @@ public sealed class SettingsMenuController
     private readonly List<string> _rewardDescriptions = [];
     private readonly List<string> _recoveryRows = [];
     private readonly List<string> _recoveryItemIds = [];
+    private readonly List<string> _weaponPickupRows = [];
     private const int InventoryPageSize = 12;
     private const int AbilityPageSize = 12;
     private const int ArmoryPageSize = 10;
@@ -119,6 +122,8 @@ public sealed class SettingsMenuController
     public string StartingWeaponId => _profile?.SelectedStartingWeaponId ?? "pulse-sidearm";
     public string? SelectedUpgradeId { get; private set; }
     public string? SelectedRecoveryItemId { get; private set; }
+    public PendingWeaponPickupDecision? WeaponPickupDecision { get; private set; }
+    public WeaponPickupDecisionAction? SelectedWeaponPickupAction { get; private set; }
 
     public void ConfigureProfile(
         ProfileData profile,
@@ -130,6 +135,10 @@ public sealed class SettingsMenuController
         ArgumentNullException.ThrowIfNull(weapons);
         _profile = profile;
         _catalog = catalog;
+        if (_catalog is not null)
+        {
+            CanonicalizeProfileQuickbar(profile, _catalog);
+        }
         _hasCheckpoint = hasCheckpoint;
         _loadoutRows.Clear();
         _loadoutWeaponIds.Clear();
@@ -140,6 +149,71 @@ public sealed class SettingsMenuController
         }
 
         _loadoutRows.Add("BACK");
+    }
+
+    private static void CanonicalizeProfileQuickbar(ProfileData profile, ContentCatalog catalog)
+    {
+        List<(StarterWeaponReference Reference, WeaponDefinition Weapon, int Source, bool Right)> candidates = [];
+        for (int source = 0; source < WeaponQuickbarLoadout.SlotCount; source++)
+        {
+            WeaponPresetSlot slot = profile.StarterWeaponQuickbar[source];
+            Add(slot.RightHand, right: true);
+            Add(slot.LeftHand, right: false);
+
+            void Add(StarterWeaponReference? reference, bool right)
+            {
+                if (reference is not null && catalog.Weapons.TryGetValue(
+                        reference.WeaponBaseId, out WeaponDefinition? weapon) &&
+                    weapon.Family != WeaponFamily.None &&
+                    !candidates.Any(candidate => reference.ItemInstanceId is not null &&
+                        candidate.Reference.ItemInstanceId?.Equals(reference.ItemInstanceId,
+                            StringComparison.OrdinalIgnoreCase) == true))
+                {
+                    candidates.Add((reference, weapon, source, right));
+                }
+            }
+        }
+
+        List<WeaponPresetSlot> canonical = Enumerable.Range(0, WeaponQuickbarLoadout.SlotCount)
+            .Select(_ => new WeaponPresetSlot()).ToList();
+        foreach (WeaponFamily family in WeaponQuickbarLoadout.FamilyOrder)
+        {
+            (StarterWeaponReference Reference, WeaponDefinition Weapon, int Source, bool Right)[] familyItems =
+                candidates.Where(candidate => candidate.Weapon.Family == family)
+                    .OrderByDescending(candidate => Persistent(candidate.Reference))
+                    .ThenByDescending(candidate => Rarity(candidate.Reference))
+                    .ThenByDescending(candidate => Power(candidate.Reference))
+                    .ThenByDescending(candidate => candidate.Right)
+                    .ThenBy(candidate => candidate.Source)
+                    .ToArray();
+            if (familyItems.Length == 0)
+            {
+                continue;
+            }
+
+            (StarterWeaponReference Reference, WeaponDefinition Weapon, int Source, bool Right) primary =
+                familyItems[0];
+            StarterWeaponReference? left = primary.Weapon.Handedness == Handedness.TwoHanded
+                ? primary.Reference
+                : familyItems.Skip(1).FirstOrDefault(candidate =>
+                    candidate.Weapon.Handedness == Handedness.OneHanded).Reference;
+            canonical[WeaponQuickbarLoadout.SlotForFamily(family)] = new WeaponPresetSlot
+            {
+                RightHand = primary.Reference,
+                LeftHand = left,
+            };
+        }
+
+        profile.StarterWeaponQuickbar = new WeaponQuickbarLoadout { Slots = canonical };
+        profile.StarterWeaponSetA = profile.StarterWeaponQuickbar[0].ToWeaponSet();
+        profile.StarterWeaponSetB = profile.StarterWeaponQuickbar[1].ToWeaponSet();
+
+        EquipmentInstance? Item(StarterWeaponReference reference) => reference.ItemInstanceId is string id
+            ? profile.Stash.FirstOrDefault(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+            : null;
+        bool Persistent(StarterWeaponReference reference) => Item(reference) is not null;
+        ItemRarity Rarity(StarterWeaponReference reference) => Item(reference)?.Rarity ?? ItemRarity.Common;
+        int Power(StarterWeaponReference reference) => Item(reference)?.ItemPower ?? 1;
     }
 
     public void OpenMain()
@@ -209,6 +283,56 @@ public sealed class SettingsMenuController
         Page = MenuPage.Recovery;
         SelectedIndex = 0;
         _returnPage = MenuPage.Recovery;
+    }
+
+    public void OpenWeaponPickup(PendingWeaponPickupDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        WeaponPickupDecision = decision;
+        SelectedWeaponPickupAction = null;
+        CraftingMaterialBundle salvage = EquipmentCrafting.GetDismantleYield(decision.OfferedItem);
+        _weaponPickupRows.Clear();
+        _weaponPickupRows.Add($"REPLACE {WeaponQuickbarLoadout.FamilyForSlot(decision.SlotIndex).ToString().ToUpperInvariant()} SLOT");
+        _weaponPickupRows.Add($"DISMANTLE  +{salvage.Scrap} SCRAP  +{salvage.Components} COMPONENTS  +{salvage.Cores} CORES");
+        _weaponPickupRows.Add("LEAVE ON GROUND");
+        Page = MenuPage.WeaponPickup;
+        SelectedIndex = 0;
+        _returnPage = MenuPage.WeaponPickup;
+    }
+
+    public IReadOnlyList<string> GetWeaponPickupComparisonLines()
+    {
+        if (WeaponPickupDecision is not { } decision)
+        {
+            return [];
+        }
+
+        List<string> lines = [WeaponStats("NEW", decision.OfferedItem)];
+        if (decision.EquippedItem is not null)
+        {
+            lines.Add(WeaponStats("CURRENT", decision.EquippedItem));
+        }
+        string affixes = decision.OfferedItem.Affixes.Count == 0
+            ? "NEW AFFIXES  NONE"
+            : "NEW AFFIXES  " + string.Join("  ", decision.OfferedItem.Affixes.Select(affix =>
+                $"{affix.AffixId.Replace('-', ' ').ToUpperInvariant()} {affix.Value:0.##}"));
+        lines.Add(affixes);
+        return lines;
+
+        string WeaponStats(string prefix, EquipmentInstance item)
+        {
+            if (item.WeaponBaseId is not string weaponId || _catalog?.Weapons.GetValueOrDefault(
+                    weaponId) is not WeaponDefinition weapon)
+            {
+                return $"{prefix}  ITEM POWER {item.ItemPower}";
+            }
+            float shotsPerSecond = 1f / MathF.Max(0.001f, weapon.FireIntervalSeconds);
+            string capacity = weapon.AmmoMode == AmmoMode.MagazineReserve
+                ? $"MAG {weapon.MagazineSize}"
+                : weapon.AmmoMode == AmmoMode.Heat ? "HEAT" : $"ENERGY {weapon.EnergyCapacity:0}";
+            return $"{prefix}  {weapon.Family.ToString().ToUpperInvariant()}  DAMAGE {weapon.Damage:0.#}  " +
+                $"RATE {shotsPerSecond:0.#}/S  {capacity}";
+        }
     }
 
     private void OpenProfilePage(MenuPage page)
@@ -323,6 +447,13 @@ public sealed class SettingsMenuController
             {
                 OpenPause();
                 return Finish(input, MenuAction.Pause);
+            }
+
+            if (Page == MenuPage.WeaponPickup)
+            {
+                SelectedWeaponPickupAction = WeaponPickupDecisionAction.Leave;
+                Close();
+                return Finish(input, MenuAction.WeaponPickupResolved);
             }
 
             if (Page is MenuPage.Settings or MenuPage.Accessibility)
@@ -489,6 +620,7 @@ public sealed class SettingsMenuController
         MenuPage.Difficulty => [.. DifficultyCatalog.All.Select(definition => definition.DisplayName), "BACK"],
         MenuPage.ThreatTier => [.. Enum.GetValues<ThreatTier>().Select(TierLabel), "BACK"],
         MenuPage.Recovery => _recoveryRows,
+        MenuPage.WeaponPickup => _weaponPickupRows,
         MenuPage.Records => RecordsRows,
         MenuPage.Tutorial => TutorialRows,
         MenuPage.Reward => _rewardRows,
@@ -500,6 +632,17 @@ public sealed class SettingsMenuController
 
     public string GetSupplementalValue(int index)
     {
+        if (Page == MenuPage.WeaponPickup && WeaponPickupDecision is { } decision)
+        {
+            EquipmentInstance offered = decision.OfferedItem;
+            EquipmentInstance? equipped = decision.EquippedItem;
+            return equipped is null
+                ? $"{offered.Rarity.ToString().ToUpperInvariant()}  IP {offered.ItemPower}  EMPTY FAMILY SLOT"
+                : $"NEW {offered.Rarity.ToString().ToUpperInvariant()} IP {offered.ItemPower}  |  " +
+                  $"CURRENT {equipped.Rarity.ToString().ToUpperInvariant()} IP {equipped.ItemPower}  " +
+                  $"({Signed(offered.ItemPower - equipped.ItemPower)} IP)";
+        }
+
         if (Page == MenuPage.Reward)
         {
             return index >= 0 && index < _rewardDescriptions.Count
@@ -833,6 +976,18 @@ public sealed class SettingsMenuController
 
             Close();
             return MenuAction.RecoveryContinue;
+        }
+
+        else if (Page == MenuPage.WeaponPickup)
+        {
+            SelectedWeaponPickupAction = SelectedIndex switch
+            {
+                0 => WeaponPickupDecisionAction.Replace,
+                1 => WeaponPickupDecisionAction.Dismantle,
+                _ => WeaponPickupDecisionAction.Leave,
+            };
+            Close();
+            return MenuAction.WeaponPickupResolved;
         }
 
         else if (Page == MenuPage.Tutorial)
@@ -1281,7 +1436,8 @@ public sealed class SettingsMenuController
         List<string> rows = [];
         for (int index = 0; index < WeaponQuickbarLoadout.SlotCount; index++)
         {
-            AddWeaponPresetRows(rows, _profile?.StarterWeaponQuickbar[index], $"{(index + 1) % 10}");
+            AddWeaponPresetRows(rows, _profile?.StarterWeaponQuickbar[index],
+                $"{(index + 1) % 10} {WeaponQuickbarLoadout.FamilyForSlot(index).ToString().ToUpperInvariant()}");
         }
         foreach (EquipmentSlot slot in LoadoutEquipmentSlots)
         {
@@ -1330,13 +1486,15 @@ public sealed class SettingsMenuController
             return [];
         }
         IEnumerable<ArmoryChoice> owned = (_profile?.Stash ?? [])
-            .Where(item => item.WeaponBaseId is not null && _catalog.Weapons.ContainsKey(item.WeaponBaseId))
+            .Where(item => item.WeaponBaseId is not null && _catalog.Weapons.ContainsKey(item.WeaponBaseId) &&
+                _catalog.Weapons[item.WeaponBaseId].Family ==
+                    WeaponQuickbarLoadout.FamilyForSlot(_armorySetIndex))
             .OrderByDescending(item => item.ItemPower)
             .ThenByDescending(item => item.Rarity)
             .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Select(item => new ArmoryChoice(_catalog.Weapons[item.WeaponBaseId!], item));
         IEnumerable<ArmoryChoice> issued = _catalog.Weapons.Values
-            .Where(weapon => weapon.Family != WeaponFamily.None)
+            .Where(weapon => weapon.Family == WeaponQuickbarLoadout.FamilyForSlot(_armorySetIndex))
             .OrderBy(weapon => weapon.Family)
             .ThenBy(weapon => weapon.BaseTier)
             .ThenBy(weapon => weapon.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -1348,8 +1506,11 @@ public sealed class SettingsMenuController
     }
 
     private int ArmoryPageCount() => Math.Max(1, (int)Math.Ceiling(
-        (((_profile?.Stash.Count(item => item.IsWeapon) ?? 0) +
-          (_catalog?.Weapons.Values.Count(weapon => weapon.Family != WeaponFamily.None) ?? 0))) /
+        (((_profile?.Stash.Count(item => item.WeaponBaseId is string weaponId &&
+              _catalog?.Weapons.GetValueOrDefault(weaponId)?.Family ==
+                  WeaponQuickbarLoadout.FamilyForSlot(_armorySetIndex)) ?? 0) +
+          (_catalog?.Weapons.Values.Count(weapon => weapon.Family ==
+              WeaponQuickbarLoadout.FamilyForSlot(_armorySetIndex)) ?? 0))) /
         (double)ArmoryPageSize));
 
     private MenuAction ActivateArmory()

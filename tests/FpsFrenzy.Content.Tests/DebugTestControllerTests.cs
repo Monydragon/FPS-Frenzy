@@ -86,4 +86,20 @@ public sealed class DebugTestControllerTests
         Assert.True(actions.HasFlag(DebugTestAction.TeleportSector));
         Assert.True(actions.HasFlag(DebugTestAction.ReloadWeaponData));
     }
+
+    [Fact]
+    public void LabControllerCyclesWeaponsAbilitiesAndEnemyControlsOnPressEdges()
+    {
+        DebugTestController controller = new(enabled: true);
+        controller.EnterLab();
+        Buttons pressed = Buttons.Y | Buttons.DPadUp | Buttons.DPadRight;
+
+        DebugTestAction actions = controller.Update(new KeyboardState(), pressed, runAvailable: true);
+
+        Assert.True(actions.HasFlag(DebugTestAction.NextWeapon));
+        Assert.True(actions.HasFlag(DebugTestAction.NextAbility1));
+        Assert.True(actions.HasFlag(DebugTestAction.SpawnEnemy));
+        Assert.Equal(DebugTestAction.None,
+            controller.Update(new KeyboardState(), pressed, runAvailable: true));
+    }
 }

@@ -168,6 +168,7 @@ public static class MenuLayout
             MenuPage.Main => safeArea.Center.Y - 72,
             MenuPage.Results => safeArea.Center.Y + 94,
             MenuPage.Reward => safeArea.Center.Y - 72,
+            MenuPage.WeaponPickup => safeArea.Center.Y - 20,
             MenuPage.Character or MenuPage.Inventory or MenuPage.Loadout or MenuPage.Abilities or
                 MenuPage.Proficiencies or MenuPage.Crafting or MenuPage.CraftingItem or MenuPage.Stats =>
                 Math.Max(safeArea.Top + 205, safeArea.Bottom - (rowCount * rowHeight) - 42),

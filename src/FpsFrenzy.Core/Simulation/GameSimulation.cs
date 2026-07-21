@@ -12,6 +12,12 @@ public sealed class GameSimulation : IDisposable
 
     private static readonly IReadOnlySet<string> NoUpgradeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    private sealed record QuickbarCandidate(
+        StarterWeaponReference Reference,
+        WeaponDefinition Weapon,
+        int SourceSlot,
+        bool IsRightHand);
+
     private readonly ContentCatalog _catalog;
     private readonly RunConfiguration _configuration;
     private readonly WaveSetDefinition _waveSet;
@@ -24,6 +30,7 @@ public sealed class GameSimulation : IDisposable
     private readonly List<string> _queuedSummons = [];
     private readonly List<EntityId> _queuedRecycles = [];
     private readonly Queue<GeneratedEnemySpawn> _generatedSpawnQueue = [];
+    private readonly Queue<WeaponFamily> _guaranteedWeaponFamilies = [];
     private int _nextEntityValue = 2;
     private int _pendingEnemies;
     private float _spawnRemainingSeconds;
@@ -62,7 +69,8 @@ public sealed class GameSimulation : IDisposable
         .Select(_ => new RuntimeWeaponSet()).ToArray();
     private readonly Dictionary<string, WeaponState> _weaponStatesByItemId =
         new(StringComparer.OrdinalIgnoreCase);
-    private int _pendingWeaponSetIndex = -1;
+    private readonly HashSet<EntityId> _dismissedWeaponPickups = [];
+    private PendingWeaponPickupDecision? _pendingWeaponPickupDecision;
     private int _runExperienceEarned;
     private int _runLevelsGained;
     private readonly Dictionary<WeaponFamily, int> _runProficiencyExperience = [];
@@ -268,6 +276,7 @@ public sealed class GameSimulation : IDisposable
     public ThreatTier ThreatTier { get; }
     public PlayerProgressionState Progression { get; }
     public PendingRunProgression PendingProgression => _pendingProgression;
+    public PendingWeaponPickupDecision? PendingWeaponPickupDecision => _pendingWeaponPickupDecision;
     public RecoveryCache RecoveryCache => _recoveryCache;
     public EquipmentLoadout EquipmentLoadout { get; }
     public WeaponSetLoadout WeaponSetA { get; private set; } = new();
@@ -282,6 +291,12 @@ public sealed class GameSimulation : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegative(slotIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slotIndex, WeaponQuickbarLoadout.SlotCount);
         return _weaponSets[slotIndex];
+    }
+    public EquipmentInstance? GetWeaponSlotEquipment(int slotIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slotIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slotIndex, WeaponQuickbarLoadout.SlotCount);
+        return GetWeaponSlotItem(slotIndex);
     }
     public IReadOnlyDictionary<string, EquipmentInstance> EquipmentItems => _equipmentItems;
     public IReadOnlyDictionary<string, float> AbilityCooldowns => _abilityCooldowns;
@@ -647,6 +662,232 @@ public sealed class GameSimulation : IDisposable
     }
 
     /// <summary>
+    /// Equips a controller-testable pair of active abilities in the non-persistent debug sandbox.
+    /// The pair is mastered and its cooldowns are reset so each selection can be tested immediately.
+    /// </summary>
+    public bool DebugEquipActiveAbilities(string ability1Id, string ability2Id)
+    {
+        string[] abilityIds = [ability1Id, ability2Id];
+        if (abilityIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != abilityIds.Length ||
+            abilityIds.Any(id => !_catalog.Abilities.TryGetValue(id, out EquipmentAbilityDefinition? ability) ||
+                ability.Kind != AbilityKind.Active))
+        {
+            return false;
+        }
+
+        foreach (string abilityId in abilityIds)
+        {
+            EquipmentAbilityDefinition ability = _catalog.Abilities[abilityId];
+            Progression.AbilityMastery.AddAbilityPoints(
+                abilityId,
+                ability.RequiredAbilityPoints,
+                _catalog);
+        }
+
+        bool equipped = Progression.AbilityMastery.TrySetLoadout(
+            abilityIds,
+            [],
+            Progression.Level,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            _catalog,
+            out _);
+        if (equipped)
+        {
+            _abilityCooldowns.Clear();
+        }
+        return equipped;
+    }
+
+    /// <summary>
+    /// Replaces the canonical family slot with a run-bound debug weapon without rebuilding the sandbox.
+    /// </summary>
+    public bool DebugEquipWeapon(string weaponId)
+    {
+        if (!_catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) ||
+            weapon.Family == WeaponFamily.None)
+        {
+            return false;
+        }
+
+        int slotIndex = WeaponQuickbarLoadout.SlotForFamily(weapon.Family);
+        EquipmentInstance item = new()
+        {
+            Id = $"debug-{slotIndex}-{weapon.Id}",
+            WeaponBaseId = weapon.Id,
+            DisplayName = weapon.DisplayName,
+            PrimarySlot = EquipmentSlot.RightHand,
+            Rarity = ItemRarity.Common,
+            ItemPower = RpgProgressionMath.MinimumItemPower(ThreatTier),
+            IsLocked = true,
+            IsRunBound = true,
+        };
+        return EquipWeaponItem(item, activateIfCurrent: true, forceActivate: true);
+    }
+
+    public bool ResolveWeaponPickup(WeaponPickupDecisionAction action)
+    {
+        PendingWeaponPickupDecision? decision = _pendingWeaponPickupDecision;
+        if (decision is null)
+        {
+            return false;
+        }
+
+        PickupState? pickup = Pickups.FirstOrDefault(candidate => candidate.Id == decision.PickupId);
+        if (pickup is null || !pickup.IsAvailable)
+        {
+            _pendingWeaponPickupDecision = null;
+            SetPaused(false);
+            return false;
+        }
+
+        bool resolved = action switch
+        {
+            WeaponPickupDecisionAction.Replace => CollectAndEquipWeaponPickup(pickup, decision.OfferedItem),
+            WeaponPickupDecisionAction.Dismantle => DismantleWeaponPickup(pickup, decision.OfferedItem),
+            WeaponPickupDecisionAction.Leave => DismissWeaponPickup(pickup),
+            _ => false,
+        };
+        if (resolved)
+        {
+            _pendingWeaponPickupDecision = null;
+            SetPaused(false);
+        }
+        return resolved;
+    }
+
+    private bool CollectAndEquipWeaponPickup(PickupState pickup, EquipmentInstance item)
+    {
+        int slotIndex = WeaponSlotForItem(item);
+        bool wasActive = slotIndex == Player.ActiveWeaponSetIndex;
+        if (!RegisterCollectedWeapon(item) ||
+            !EquipWeaponItem(item, activateIfCurrent: wasActive, forceActivate: false))
+        {
+            return false;
+        }
+        ConsumeWeaponPickup(pickup, item);
+        return true;
+    }
+
+    private bool DismantleWeaponPickup(PickupState pickup, EquipmentInstance item)
+    {
+        CraftingMaterialBundle value = EquipmentCrafting.GetDismantleYield(item);
+        CraftingMaterialBundle current = _pendingProgression.DismantledMaterials;
+        _pendingProgression.DismantledMaterials = new CraftingMaterialBundle(
+            current.Scrap + value.Scrap,
+            current.Components + value.Components,
+            current.Cores + value.Cores);
+        Pickups.Remove(pickup);
+        _dismissedWeaponPickups.Remove(pickup.Id);
+        if (pickup.Type == PickupType.Weapon)
+        {
+            _awaitingArmoryCollection = Pickups.Any(IsActiveArmoryPickup);
+        }
+        AddEvent(CombatEventType.WeaponDismantled, pickup.Position, Player.Position,
+            pickup.Id, Player.Id, item.Id, item.ItemPower);
+        return true;
+    }
+
+    private bool DismissWeaponPickup(PickupState pickup)
+    {
+        _dismissedWeaponPickups.Add(pickup.Id);
+        return true;
+    }
+
+    private bool EquipWeaponItem(EquipmentInstance item, bool activateIfCurrent, bool forceActivate)
+    {
+        if (item.WeaponBaseId is not string weaponId ||
+            !_catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) ||
+            weapon.Family == WeaponFamily.None)
+        {
+            return false;
+        }
+
+        int slotIndex = WeaponQuickbarLoadout.SlotForFamily(weapon.Family);
+        _equipmentItems[item.Id] = item;
+        StarterWeaponReference reference = new()
+        {
+            WeaponBaseId = weapon.Id,
+            ItemInstanceId = item.Id,
+        };
+        WeaponPresetSlot replacement = new()
+        {
+            RightHand = reference,
+            LeftHand = weapon.Handedness == Handedness.TwoHanded ? reference : null,
+        };
+        WeaponSetLoadout normalized = NormalizeWeaponSet(replacement.ToWeaponSet(), slotIndex);
+        WeaponQuickbar.Slots[slotIndex] = WeaponPresetSlot.FromWeaponSet(normalized);
+        WeaponSetA = WeaponQuickbar[0].ToWeaponSet();
+        WeaponSetB = WeaponQuickbar[1].ToWeaponSet();
+
+        HashSet<string> occupiedPersistentItems = _weaponSets
+            .Where((_, index) => index != slotIndex)
+            .SelectMany(set => new[] { set.RightHandItemId, set.LeftHandItemId })
+            .OfType<string>()
+            .Where(id => _equipmentItems.TryGetValue(id, out EquipmentInstance? existing) && !existing.IsRunBound)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        RuntimeWeaponSet runtime = _weaponSets[slotIndex];
+        runtime.RightHand = null;
+        runtime.LeftHand = null;
+        runtime.RightHandItemId = null;
+        runtime.LeftHandItemId = null;
+        InitializeWeaponSet(slotIndex, normalized, checkpoint: null, occupiedPersistentItems);
+        if (forceActivate || activateIfCurrent)
+        {
+            ActivateWeaponSet(slotIndex, emitEvent: true);
+        }
+        return true;
+    }
+
+    private bool RegisterCollectedWeapon(EquipmentInstance item)
+    {
+        if (item.IsRunBound)
+        {
+            _equipmentItems[item.Id] = item;
+            return true;
+        }
+        if (_pendingProgression.Equipment.Any(existing => existing.Id.Equals(
+                item.Id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+        _pendingProgression.Equipment.Add(item);
+        _equipmentItems[item.Id] = item;
+        return true;
+    }
+
+    private int WeaponSlotForItem(EquipmentInstance item) =>
+        item.WeaponBaseId is string weaponId && _catalog.Weapons.TryGetValue(
+            weaponId, out WeaponDefinition? weapon) && weapon.Family != WeaponFamily.None
+                ? WeaponQuickbarLoadout.SlotForFamily(weapon.Family)
+                : -1;
+
+    private EquipmentInstance? GetWeaponSlotItem(int slotIndex)
+    {
+        string? itemId = slotIndex is >= 0 and < WeaponQuickbarLoadout.SlotCount
+            ? _weaponSets[slotIndex].RightHandItemId
+            : null;
+        return itemId is not null && _equipmentItems.TryGetValue(itemId, out EquipmentInstance? item)
+            ? item
+            : null;
+    }
+
+    private void ConsumeWeaponPickup(PickupState pickup, EquipmentInstance item)
+    {
+        Pickups.Remove(pickup);
+        _dismissedWeaponPickups.Remove(pickup.Id);
+        AddEvent(CombatEventType.PickupCollected, pickup.Position, Player.Position,
+            pickup.Id, Player.Id, pickup.Type.ToString(), Math.Max(1, pickup.Amount));
+        AddEvent(CombatEventType.EquipmentCollected, pickup.Position, Player.Position,
+            pickup.Id, Player.Id, item.Id, item.ItemPower);
+        AddEvent(CombatEventType.WeaponCollected, pickup.Position, Player.Position,
+            pickup.Id, Player.Id, item.WeaponBaseId, item.ItemPower);
+        if (pickup.Type == PickupType.Weapon)
+        {
+            _awaitingArmoryCollection = Pickups.Any(IsActiveArmoryPickup);
+        }
+    }
+
+    /// <summary>
     /// Drops one item of each rarity around the player for beam, interaction, comparison,
     /// recovery-cache, and distance-culling tests.
     /// </summary>
@@ -668,6 +909,41 @@ public sealed class GameSimulation : IDisposable
             Vector3 position = Player.Position + new Vector3(MathF.Sin(angle) * 3f, 0f, MathF.Cos(angle) * 3f);
             AddEquipmentDrop(item, position);
         }
+    }
+
+    public PickupState DebugSpawnWeaponDrop(
+        string weaponId,
+        ItemRarity rarity = ItemRarity.Rare,
+        int itemPower = 25)
+    {
+        if (!_catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) ||
+            weapon.Family == WeaponFamily.None)
+        {
+            throw new ArgumentException($"Unknown playable debug weapon '{weaponId}'.", nameof(weaponId));
+        }
+
+        EquipmentInstance item = new()
+        {
+            Id = $"debug-drop-{_lootDropSerial++}-{weapon.Id}",
+            WeaponBaseId = weapon.Id,
+            DisplayName = weapon.DisplayName,
+            PrimarySlot = EquipmentSlot.RightHand,
+            Rarity = rarity,
+            ItemPower = Math.Clamp(itemPower, 1, 100),
+        };
+        Vector3 openPosition = FindOpenDropPosition(Player.Position + new Vector3(0f, 0f, 0.25f));
+        PickupState pickup = new()
+        {
+            Id = NextEntity(),
+            Type = PickupType.Equipment,
+            Position = new Vector3(openPosition.X, 0.2f, openPosition.Z),
+            Equipment = item,
+            IsDropped = true,
+        };
+        Pickups.Add(pickup);
+        AddEvent(CombatEventType.EquipmentDropped, openPosition, Player.Position,
+            EntityId.None, Player.Id, item.Id, item.ItemPower);
+        return pickup;
     }
 
     public void SetDebugAiFrozen(bool frozen) => DebugAiFrozen = frozen;
@@ -867,7 +1143,15 @@ public sealed class GameSimulation : IDisposable
     {
         ArgumentNullException.ThrowIfNull(requested);
         StarterWeaponReference? right = MaterializeReference(requested.RightHand, setIndex, "right");
-        StarterWeaponReference? left = MaterializeReference(requested.LeftHand, setIndex, "left");
+        bool sharesUnmaterializedTwoHandedIssue = requested.RightHand is not null && requested.LeftHand is not null &&
+            requested.RightHand.ItemInstanceId is null && requested.LeftHand.ItemInstanceId is null &&
+            requested.RightHand.WeaponBaseId.Equals(requested.LeftHand.WeaponBaseId,
+                StringComparison.OrdinalIgnoreCase) &&
+            _catalog.Weapons.TryGetValue(requested.RightHand.WeaponBaseId, out WeaponDefinition? requestedWeapon) &&
+            requestedWeapon.Handedness == Handedness.TwoHanded;
+        StarterWeaponReference? left = sharesUnmaterializedTwoHandedIssue
+            ? right
+            : MaterializeReference(requested.LeftHand, setIndex, "left");
         WeaponDefinition? rightWeapon = ResolveWeapon(right);
         WeaponDefinition? leftWeapon = ResolveWeapon(left);
 
@@ -901,14 +1185,96 @@ public sealed class GameSimulation : IDisposable
     private WeaponQuickbarLoadout NormalizeWeaponQuickbar(WeaponQuickbarLoadout requested)
     {
         ArgumentNullException.ThrowIfNull(requested);
-        List<WeaponPresetSlot> slots = [];
-        for (int index = 0; index < WeaponQuickbarLoadout.SlotCount; index++)
+        List<QuickbarCandidate> candidates = [];
+        for (int sourceSlot = 0; sourceSlot < WeaponQuickbarLoadout.SlotCount; sourceSlot++)
         {
-            WeaponSetLoadout normalized = NormalizeWeaponSet(requested[index].ToWeaponSet(), index);
-            slots.Add(WeaponPresetSlot.FromWeaponSet(normalized));
+            WeaponPresetSlot source = requested[sourceSlot];
+            AddQuickbarCandidate(candidates, source.RightHand, sourceSlot, isRightHand: true);
+            bool duplicateTwoHandedReference = source.RightHand is not null && source.LeftHand is not null &&
+                string.Equals(source.RightHand.WeaponBaseId, source.LeftHand.WeaponBaseId,
+                    StringComparison.OrdinalIgnoreCase) &&
+                _catalog.Weapons.TryGetValue(source.RightHand.WeaponBaseId, out WeaponDefinition? shared) &&
+                shared.Handedness == Handedness.TwoHanded &&
+                (string.Equals(source.RightHand.ItemInstanceId, source.LeftHand.ItemInstanceId,
+                    StringComparison.OrdinalIgnoreCase) || source.RightHand.ItemInstanceId is null &&
+                    source.LeftHand.ItemInstanceId is null);
+            if (!duplicateTwoHandedReference)
+            {
+                AddQuickbarCandidate(candidates, source.LeftHand, sourceSlot, isRightHand: false);
+            }
+        }
+
+        List<WeaponPresetSlot> slots = Enumerable.Range(0, WeaponQuickbarLoadout.SlotCount)
+            .Select(_ => new WeaponPresetSlot()).ToList();
+        foreach (WeaponFamily family in WeaponQuickbarLoadout.FamilyOrder)
+        {
+            QuickbarCandidate[] familyCandidates = candidates
+                .Where(candidate => candidate.Weapon.Family == family)
+                .OrderByDescending(candidate => IsPersistentCandidate(candidate.Reference))
+                .ThenByDescending(candidate => CandidateRarity(candidate.Reference))
+                .ThenByDescending(candidate => CandidateItemPower(candidate.Reference))
+                .ThenByDescending(candidate => candidate.IsRightHand)
+                .ThenBy(candidate => candidate.SourceSlot)
+                .ToArray();
+            if (familyCandidates.Length == 0)
+            {
+                continue;
+            }
+
+            QuickbarCandidate primary = familyCandidates[0];
+            StarterWeaponReference? left = null;
+            if (primary.Weapon.Handedness == Handedness.TwoHanded)
+            {
+                left = primary.Reference;
+            }
+            else
+            {
+                left = familyCandidates.Skip(1)
+                    .FirstOrDefault(candidate => candidate.Weapon.Handedness == Handedness.OneHanded &&
+                        !SameItemReference(primary.Reference, candidate.Reference))?.Reference;
+            }
+
+            int targetSlot = WeaponQuickbarLoadout.SlotForFamily(family);
+            WeaponSetLoadout normalized = NormalizeWeaponSet(new WeaponSetLoadout
+            {
+                RightHand = primary.Reference,
+                LeftHand = left,
+            }, targetSlot);
+            slots[targetSlot] = WeaponPresetSlot.FromWeaponSet(normalized);
         }
         return new WeaponQuickbarLoadout { Slots = slots };
     }
+
+    private void AddQuickbarCandidate(
+        ICollection<QuickbarCandidate> candidates,
+        StarterWeaponReference? reference,
+        int sourceSlot,
+        bool isRightHand)
+    {
+        if (reference is not null && _catalog.Weapons.TryGetValue(
+                reference.WeaponBaseId, out WeaponDefinition? weapon) && weapon.Family != WeaponFamily.None)
+        {
+            candidates.Add(new QuickbarCandidate(reference, weapon, sourceSlot, isRightHand));
+        }
+    }
+
+    private bool IsPersistentCandidate(StarterWeaponReference reference) =>
+        reference.ItemInstanceId is string itemId &&
+        _equipmentItems.TryGetValue(itemId, out EquipmentInstance? item) && !item.IsRunBound;
+
+    private ItemRarity CandidateRarity(StarterWeaponReference reference) =>
+        reference.ItemInstanceId is string itemId && _equipmentItems.TryGetValue(itemId, out EquipmentInstance? item)
+            ? item.Rarity
+            : ItemRarity.Common;
+
+    private int CandidateItemPower(StarterWeaponReference reference) =>
+        reference.ItemInstanceId is string itemId && _equipmentItems.TryGetValue(itemId, out EquipmentInstance? item)
+            ? item.ItemPower
+            : RpgProgressionMath.MinimumItemPower(ThreatTier);
+
+    private static bool SameItemReference(StarterWeaponReference left, StarterWeaponReference right) =>
+        left.ItemInstanceId is not null && right.ItemInstanceId is not null &&
+        left.ItemInstanceId.Equals(right.ItemInstanceId, StringComparison.OrdinalIgnoreCase);
 
     private StarterWeaponReference? MaterializeReference(
         StarterWeaponReference? reference,
@@ -968,8 +1334,11 @@ public sealed class GameSimulation : IDisposable
         {
             WeaponState fallback = new(startingWeapon, _runDirector?.Modifiers);
             Player.Weapons.Add(fallback);
-            _weaponSets[0].RightHand = fallback;
-            _weaponSets[0].RightHandItemId = WeaponQuickbar[0].RightHand?.ItemInstanceId;
+            int fallbackSlot = startingWeapon.Family == WeaponFamily.None
+                ? 0
+                : WeaponQuickbarLoadout.SlotForFamily(startingWeapon.Family);
+            _weaponSets[fallbackSlot].RightHand = fallback;
+            _weaponSets[fallbackSlot].LeftHand = startingWeapon.Handedness == Handedness.TwoHanded ? fallback : null;
         }
 
         int activeSet = Math.Clamp(
@@ -1658,8 +2027,7 @@ public sealed class GameSimulation : IDisposable
             : -1;
         bool swapPressed = command.Has(PlayerButtons.SwapWeaponSet) &&
             !_previousButtons.HasFlag(PlayerButtons.SwapWeaponSet);
-        if (_pendingWeaponSetIndex < 0 &&
-            (requestedSet >= 0 || swapPressed))
+        if (requestedSet >= 0 || swapPressed)
         {
             BeginWeaponSetSwap(requestedSet >= 0
                 ? requestedSet
@@ -1680,19 +2048,6 @@ public sealed class GameSimulation : IDisposable
                 AddEvent(CombatEventType.ReloadCompleted, Player.Position, Player.Position,
                     Player.Id, EntityId.None, weapon.Definition.Id);
             }
-        }
-
-        if (_pendingWeaponSetIndex >= 0)
-        {
-            Player.WeaponSwapRemainingSeconds = MathF.Max(0f,
-                Player.WeaponSwapRemainingSeconds - deltaSeconds);
-            if (Player.WeaponSwapRemainingSeconds <= 0f)
-            {
-                int completedSet = _pendingWeaponSetIndex;
-                _pendingWeaponSetIndex = -1;
-                ActivateWeaponSet(completedSet, emitEvent: true);
-            }
-            return;
         }
 
         WeaponState right = Player.EffectiveRightHandWeapon;
@@ -1721,24 +2076,23 @@ public sealed class GameSimulation : IDisposable
     {
         if (targetSetIndex is < 0 or >= WeaponQuickbarLoadout.SlotCount ||
             targetSetIndex == Player.ActiveWeaponSetIndex ||
-            _pendingWeaponSetIndex >= 0 || _weaponSets[targetSetIndex].RightHand is null)
+            _weaponSets[targetSetIndex].RightHand is null)
         {
             return false;
         }
 
-        CancelWeaponSetTransientState(_weaponSets[Player.ActiveWeaponSetIndex]);
-        CancelWeaponSetTransientState(_weaponSets[targetSetIndex]);
+        CancelWeaponSetAttackState(_weaponSets[Player.ActiveWeaponSetIndex]);
         Player.IsAiming = false;
-        Player.WeaponSwapRemainingSeconds = 0.35f;
-        _pendingWeaponSetIndex = targetSetIndex;
+        Player.WeaponSwapRemainingSeconds = 0f;
+        ActivateWeaponSet(targetSetIndex, emitEvent: true);
         return true;
     }
 
-    private void CancelWeaponSetTransientState(RuntimeWeaponSet set)
+    private void CancelWeaponSetAttackState(RuntimeWeaponSet set)
     {
         foreach (WeaponState weapon in new[] { set.RightHand, set.LeftHand }.OfType<WeaponState>().Distinct())
         {
-            weapon.CancelTransientState();
+            weapon.CancelAttackState();
             _chargeSeconds.Remove(weapon);
             _rampShots.Remove(weapon);
         }
@@ -2197,6 +2551,7 @@ public sealed class GameSimulation : IDisposable
         Player.IsGrounded = true;
         Projectiles.Clear();
         _generatedEncounterEnemyTotal = 0;
+        ConfigureGuaranteedWeaponDrops();
         QueueGeneratedPressureWave(encounter);
         RelayObjective = encounter.ObjectiveType == EncounterObjectiveType.RelayDefense
             ? new RelayObjectiveState
@@ -2211,6 +2566,44 @@ public sealed class GameSimulation : IDisposable
             EntityId.None, Player.Id, sector.Id, encounter.SectorNumber);
         AddEvent(CombatEventType.EncounterStarted, sector.ObjectiveAnchor, Player.Position,
             EntityId.None, Player.Id, encounter.ObjectiveType.ToString(), _runDirector.CurrentEncounterIndex + 1);
+    }
+
+    private void ConfigureGuaranteedWeaponDrops()
+    {
+        _guaranteedWeaponFamilies.Clear();
+        if (_runDirector is null)
+        {
+            return;
+        }
+
+        int encounterIndex = _runDirector.CurrentEncounterIndex;
+        WeaponFamily[] missing = WeaponQuickbarLoadout.FamilyOrder
+            .Where(family => _weaponSets[WeaponQuickbarLoadout.SlotForFamily(family)].RightHand is null)
+            .OrderBy(family => StableArmoryOrder(family.ToString(), encounterIndex))
+            .ToArray();
+        int quota;
+        IEnumerable<WeaponFamily> selected;
+        if (encounterIndex < 3 && missing.Length > 0)
+        {
+            int remainingFirstSectorEncounters = 3 - encounterIndex;
+            quota = (int)Math.Ceiling(missing.Length / (double)remainingFirstSectorEncounters);
+            selected = missing.Take(quota);
+        }
+        else
+        {
+            quota = 1;
+            WeaponFamily[] pool = missing.Length > 0
+                ? missing
+                : WeaponQuickbarLoadout.FamilyOrder
+                    .OrderBy(family => StableArmoryOrder(family.ToString(), encounterIndex))
+                    .ToArray();
+            selected = pool.Take(quota);
+        }
+
+        foreach (WeaponFamily family in selected)
+        {
+            _guaranteedWeaponFamilies.Enqueue(family);
+        }
     }
 
     private void BuildGeneratedSpawnQueue(EncounterDefinition encounter)
@@ -2621,6 +3014,11 @@ public sealed class GameSimulation : IDisposable
         Score += 500 * (_runDirector!.CurrentEncounterIndex + 1);
         Player.Health = MathF.Min(Player.MaximumHealth,
             Player.Health + _runDirector.Modifiers.EncounterHealing);
+        while (_guaranteedWeaponFamilies.TryDequeue(out WeaponFamily family))
+        {
+            EquipmentInstance item = GenerateLoot(-7_000 - _lootDropSerial, requiredWeaponFamily: family);
+            AddEquipmentDrop(item, Player.Position + new Vector3(0f, -PlayerEyeHeight, 1.5f));
+        }
         GatherRecoveryLoot(encounter);
         CreditEquippedAbilityPoints();
         TeleportPlayerToRecoveryHub();
@@ -4162,6 +4560,22 @@ public sealed class GameSimulation : IDisposable
         }
 
         DropEquipmentForEnemy(enemy);
+        DropGuaranteedWeaponForEnemy(enemy);
+    }
+
+    private void DropGuaranteedWeaponForEnemy(EnemyState enemy)
+    {
+        if (_runDirector?.Phase != global::FpsFrenzy.Core.Simulation.RunPhase.EncounterActive ||
+            _guaranteedWeaponFamilies.Count == 0)
+        {
+            return;
+        }
+
+        WeaponFamily family = _guaranteedWeaponFamilies.Dequeue();
+        EquipmentInstance item = GenerateLoot(enemy.Id.Value, requiredWeaponFamily: family);
+        float angle = (family.GetHashCode() & 7) * (MathF.Tau / 8f);
+        Vector3 offset = new(MathF.Sin(angle) * 1.45f, 0f, MathF.Cos(angle) * 1.45f);
+        AddEquipmentDrop(item, enemy.Position + offset);
     }
 
     private void CreditWeaponProficiency(string? weaponId, float damage, bool killCredit)
@@ -4209,45 +4623,103 @@ public sealed class GameSimulation : IDisposable
             }
 
             EquipmentInstance item = GenerateLoot(enemy.Id.Value, minimumRarity);
-            Vector3 offset = new((index % 3 - 1) * 0.8f, 0f, (index / 3) * 0.8f);
+            float angle = ((enemy.Id.Value & 7) * (MathF.Tau / 8f)) +
+                (index * (MathF.Tau / Math.Max(1, count)));
+            float radius = count == 1 ? 0.95f : 1.3f;
+            Vector3 offset = new(MathF.Sin(angle) * radius, 0f, MathF.Cos(angle) * radius);
             AddEquipmentDrop(item, enemy.Position + offset);
             minimumRarity = null;
         }
     }
 
-    private EquipmentInstance GenerateLoot(int sourceEntity, ItemRarity? minimumRarity = null) =>
+    private EquipmentInstance GenerateLoot(
+        int sourceEntity,
+        ItemRarity? minimumRarity = null,
+        WeaponFamily? requiredWeaponFamily = null) =>
         LootGenerator.Generate(RunSeed, Tick, sourceEntity, _lootDropSerial++, ThreatTier,
             _catalog, Progression.Proficiencies, minimumRarity,
-            CalculateRewardMultiplier(AffixEffectType.RarityLuck, maximumBonus: 1f) - 1f);
+            CalculateRewardMultiplier(AffixEffectType.RarityLuck, maximumBonus: 1f) - 1f,
+            requiredWeaponFamily);
 
     private void AddEquipmentDrop(EquipmentInstance item, Vector3 position)
     {
+        Vector3 openPosition = FindOpenDropPosition(position);
         Pickups.Add(new PickupState
         {
             Id = NextEntity(),
             Type = PickupType.Equipment,
-            Position = new Vector3(position.X, 0.2f, position.Z),
+            Position = new Vector3(openPosition.X, 0.2f, openPosition.Z),
             Equipment = item,
             IsDropped = true,
         });
-        AddEvent(CombatEventType.EquipmentDropped, position, Player.Position,
+        AddEvent(CombatEventType.EquipmentDropped, openPosition, Player.Position,
             EntityId.None, Player.Id, item.Id, item.ItemPower);
     }
 
-    private void AddDroppedPickup(PickupType type, Vector3 position, int amount) => Pickups.Add(new PickupState
+    private void AddDroppedPickup(PickupType type, Vector3 position, int amount)
     {
-        Id = NextEntity(),
-        Type = type,
-        Position = new Vector3(position.X, 0.5f, position.Z),
-        Amount = amount,
-        RespawnSeconds = 0f,
-        IsDropped = true,
-    });
+        Vector3 openPosition = FindOpenDropPosition(position);
+        Pickups.Add(new PickupState
+        {
+            Id = NextEntity(),
+            Type = type,
+            Position = new Vector3(openPosition.X, 0.5f, openPosition.Z),
+            Amount = amount,
+            RespawnSeconds = 0f,
+            IsDropped = true,
+        });
+    }
+
+    private Vector3 FindOpenDropPosition(Vector3 desired) => PickupDropLayout.FindOpenPosition(
+        desired,
+        Pickups.Where(pickup => pickup.IsAvailable).Select(pickup => pickup.Position),
+        Arena.BoundsMin,
+        Arena.BoundsMax);
 
     private void UpdatePickups(PlayerCommand command, float deltaSeconds)
     {
         bool interactPressed = command.Has(PlayerButtons.Interact) &&
             !_previousButtons.HasFlag(PlayerButtons.Interact);
+        float pickupRadius = 1.2f * (_runDirector?.Modifiers.PickupRadiusMultiplier ?? 1f) *
+            CalculateRewardMultiplier(AffixEffectType.PickupRadius, maximumBonus: 1f);
+        Vector2 playerPosition = new(Player.Position.X, Player.Position.Z);
+
+        foreach (EntityId dismissedId in _dismissedWeaponPickups.ToArray())
+        {
+            PickupState? dismissed = Pickups.FirstOrDefault(pickup => pickup.Id == dismissedId);
+            if (dismissed is null || Vector2.DistanceSquared(playerPosition,
+                    new Vector2(dismissed.Position.X, dismissed.Position.Z)) > pickupRadius * pickupRadius)
+            {
+                _dismissedWeaponPickups.Remove(dismissedId);
+            }
+        }
+
+        PickupState? competingWeapon = Pickups
+            .Where(pickup => pickup.IsAvailable &&
+                (!_dismissedWeaponPickups.Contains(pickup.Id) || interactPressed) &&
+                TryGetWeaponPickupItem(pickup, out EquipmentInstance? item) &&
+                _weaponSets[WeaponSlotForItem(item!)].RightHand is not null &&
+                Vector2.DistanceSquared(playerPosition,
+                    new Vector2(pickup.Position.X, pickup.Position.Z)) <= pickupRadius * pickupRadius)
+            .OrderBy(pickup => Vector2.DistanceSquared(playerPosition,
+                new Vector2(pickup.Position.X, pickup.Position.Z)))
+            .FirstOrDefault();
+        if (competingWeapon is not null && TryGetWeaponPickupItem(
+                competingWeapon, out EquipmentInstance? competingItem))
+        {
+            int slotIndex = WeaponSlotForItem(competingItem!);
+            _pendingWeaponPickupDecision = new PendingWeaponPickupDecision(
+                competingWeapon.Id,
+                slotIndex,
+                competingItem!,
+                GetWeaponSlotItem(slotIndex));
+            AddEvent(CombatEventType.WeaponPickupDecisionRequired,
+                competingWeapon.Position, Player.Position, competingWeapon.Id, Player.Id,
+                competingItem!.Id, competingItem.ItemPower);
+            SetPaused(true);
+            return;
+        }
+
         for (int index = Pickups.Count - 1; index >= 0; index--)
         {
             PickupState pickup = Pickups[index];
@@ -4262,12 +4734,20 @@ public sealed class GameSimulation : IDisposable
                 continue;
             }
 
-            Vector2 playerPosition = new(Player.Position.X, Player.Position.Z);
             Vector2 pickupPosition = new(pickup.Position.X, pickup.Position.Z);
-            float pickupRadius = 1.2f * (_runDirector?.Modifiers.PickupRadiusMultiplier ?? 1f) *
-                CalculateRewardMultiplier(AffixEffectType.PickupRadius, maximumBonus: 1f);
             if (Vector2.DistanceSquared(playerPosition, pickupPosition) > pickupRadius * pickupRadius)
             {
+                continue;
+            }
+
+            if (TryGetWeaponPickupItem(pickup, out EquipmentInstance? weaponItem))
+            {
+                int weaponSlot = WeaponSlotForItem(weaponItem!);
+                if (_weaponSets[weaponSlot].RightHand is null && RegisterCollectedWeapon(weaponItem!) &&
+                    EquipWeaponItem(weaponItem!, activateIfCurrent: false, forceActivate: false))
+                {
+                    ConsumeWeaponPickup(pickup, weaponItem!);
+                }
                 continue;
             }
 
@@ -4314,6 +4794,34 @@ public sealed class GameSimulation : IDisposable
                 pickup.RespawnRemainingSeconds = pickup.RespawnSeconds;
             }
         }
+    }
+
+    private bool TryGetWeaponPickupItem(PickupState pickup, out EquipmentInstance? item)
+    {
+        if (pickup.Equipment is { IsWeapon: true } equipment)
+        {
+            item = equipment;
+            return WeaponSlotForItem(equipment) >= 0;
+        }
+        if (pickup.Type == PickupType.Weapon && pickup.WeaponId is string weaponId &&
+            _catalog.Weapons.TryGetValue(weaponId, out WeaponDefinition? weapon) &&
+            weapon.Family != WeaponFamily.None)
+        {
+            item = new EquipmentInstance
+            {
+                Id = $"armory-{RunSeed}-{pickup.Id.Value}-{weapon.Id}",
+                WeaponBaseId = weapon.Id,
+                DisplayName = weapon.DisplayName,
+                PrimarySlot = EquipmentSlot.RightHand,
+                Rarity = ItemRarity.Common,
+                ItemPower = RpgProgressionMath.MinimumItemPower(ThreatTier),
+                IsLocked = true,
+                IsRunBound = true,
+            };
+            return true;
+        }
+        item = null;
+        return false;
     }
 
     private bool TryCollectEquipment(EquipmentInstance? item)

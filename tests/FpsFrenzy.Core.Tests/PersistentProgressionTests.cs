@@ -8,6 +8,22 @@ namespace FpsFrenzy.Core.Tests;
 public sealed class PersistentProgressionTests
 {
     [Fact]
+    public void QuickbarSlotsMapOneToOneToPlayableWeaponFamilies()
+    {
+        WeaponFamily[] expected = Enum.GetValues<WeaponFamily>()
+            .Where(family => family != WeaponFamily.None)
+            .ToArray();
+
+        Assert.Equal(WeaponQuickbarLoadout.SlotCount, expected.Length);
+        Assert.Equal(expected, WeaponQuickbarLoadout.FamilyOrder);
+        for (int slot = 0; slot < WeaponQuickbarLoadout.SlotCount; slot++)
+        {
+            Assert.Equal(slot, WeaponQuickbarLoadout.SlotForFamily(
+                WeaponQuickbarLoadout.FamilyForSlot(slot)));
+        }
+    }
+
+    [Fact]
     public void ProgressionMathMatchesThreatAndLevelSpecifications()
     {
         Assert.Equal(330, RpgProgressionMath.ExperienceToNextLevel(1));
@@ -74,6 +90,22 @@ public sealed class PersistentProgressionTests
     }
 
     [Fact]
+    public void LootGenerationCanRequireEachPlayableWeaponFamily()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        int serial = 0;
+        foreach (WeaponFamily family in WeaponQuickbarLoadout.FamilyOrder)
+        {
+            EquipmentInstance item = LootGenerator.Generate(
+                44, 900, 12, serial++, ThreatTier.TierIII, catalog,
+                requiredWeaponFamily: family);
+
+            Assert.True(item.IsWeapon);
+            Assert.Equal(family, catalog.Weapons[item.WeaponBaseId!].Family);
+        }
+    }
+
+    [Fact]
     public void TwoHandedWeaponReservesBothHandsAndOneHandedItemsRemainIndependent()
     {
         ContentCatalog catalog = LoadCatalog();
@@ -97,7 +129,7 @@ public sealed class PersistentProgressionTests
     }
 
     [Fact]
-    public void TwoIssuedWeaponSetsSwapInPointThreeFiveSecondsAndCheckpointIndependently()
+    public void IssuedWeaponsCanonicalizeByFamilyAndSwapImmediately()
     {
         ContentCatalog catalog = LoadCatalog();
         RunConfiguration configuration = new()
@@ -117,31 +149,34 @@ public sealed class PersistentProgressionTests
         using GameSimulation simulation = new(catalog, configuration);
 
         Assert.Equal("pulse-sidearm", simulation.Player.EffectiveRightHandWeapon.Definition.Id);
-        Assert.Equal("ion-sprayer", simulation.Player.LeftHandWeapon?.Definition.Id);
+        Assert.Null(simulation.Player.LeftHandWeapon);
+        Assert.Equal("ion-sprayer", simulation.GetWeaponSlotState(
+            WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.SMG)).RightHand?.Definition.Id);
         simulation.Step([Command(simulation, PlayerButtons.SwapWeaponSet)]);
-        Assert.Equal(0, simulation.ActiveWeaponSetIndex);
-        for (int tick = 0; tick < 21; tick++)
-        {
-            simulation.Step([]);
-        }
-
         Assert.Equal(1, simulation.ActiveWeaponSetIndex);
+        Assert.Equal("ion-sprayer", simulation.Player.EffectiveRightHandWeapon.Definition.Id);
+
+        int precisionSlot = WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.Precision);
+        simulation.Step([new PlayerCommand(
+            simulation.Tick + 1, simulation.Player.Id, Vector2.Zero, Vector2.Zero,
+            PlayerButtons.None, precisionSlot)]);
+        Assert.Equal(precisionSlot, simulation.ActiveWeaponSetIndex);
         Assert.Equal("longshot-rifle", simulation.Player.EffectiveRightHandWeapon.Definition.Id);
         Assert.Same(simulation.Player.EffectiveRightHandWeapon, simulation.Player.LeftHandWeapon);
         RunCheckpoint checkpoint = Assert.IsType<RunCheckpoint>(simulation.CreateRunCheckpoint());
         Assert.Equal(RunCheckpoint.CurrentSchemaVersion, checkpoint.SchemaVersion);
-        Assert.Equal(1, checkpoint.ActiveWeaponSetIndex);
-        Assert.Equal(1, checkpoint.ActiveWeaponSlotIndex);
+        Assert.Equal(precisionSlot, checkpoint.ActiveWeaponSetIndex);
+        Assert.Equal(precisionSlot, checkpoint.ActiveWeaponSlotIndex);
         Assert.Equal(WeaponQuickbarLoadout.SlotCount, checkpoint.WeaponQuickbar.Slots.Count);
         Assert.Equal(3, checkpoint.IssuedItemInstances.Count);
 
         using GameSimulation restored = new(catalog, configuration with { Checkpoint = checkpoint });
-        Assert.Equal(1, restored.ActiveWeaponSetIndex);
+        Assert.Equal(precisionSlot, restored.ActiveWeaponSetIndex);
         Assert.Equal("longshot-rifle", restored.Player.EffectiveRightHandWeapon.Definition.Id);
     }
 
     [Fact]
-    public void PersistentStashItemCannotOccupyBothWeaponSets()
+    public void DuplicateLegacyPresetReferenceCanonicalizesWithoutDuplicatingTheItem()
     {
         ContentCatalog catalog = LoadCatalog();
         EquipmentInstance pulse = WeaponItem("owned-pulse", "pulse-sidearm");
@@ -151,13 +186,17 @@ public sealed class PersistentProgressionTests
             ItemInstanceId = pulse.Id,
         };
 
-        Assert.Throws<ArgumentException>(() => new GameSimulation(catalog, new RunConfiguration
+        using GameSimulation simulation = new(catalog, new RunConfiguration
         {
             ArenaId = "orbital-depot",
             StartingStash = [pulse],
             StartingWeaponSetA = new WeaponSetLoadout { RightHand = reference },
             StartingWeaponSetB = new WeaponSetLoadout { RightHand = reference },
-        }));
+        });
+
+        Assert.Equal("owned-pulse", simulation.GetWeaponSlotEquipment(
+            WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.Pulse))?.Id);
+        Assert.Single(simulation.Player.Weapons);
     }
 
     [Fact]
@@ -169,6 +208,7 @@ public sealed class PersistentProgressionTests
         {
             RightHand = StarterWeaponReference.Issue("pulse-sidearm"),
         };
+        int precisionSlot = WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.Precision);
         quickbar.Slots[9] = new WeaponPresetSlot
         {
             RightHand = StarterWeaponReference.Issue("longshot-rifle"),
@@ -182,20 +222,178 @@ public sealed class PersistentProgressionTests
 
         simulation.Step([new PlayerCommand(
             simulation.Tick + 1, simulation.Player.Id, Vector2.Zero, Vector2.Zero,
-            PlayerButtons.None, WeaponQuickbarLoadout.SlotCount - 1)]);
-        for (int tick = 0; tick < 21; tick++)
-        {
-            simulation.Step([]);
-        }
+            PlayerButtons.None, precisionSlot)]);
 
-        Assert.Equal(9, simulation.ActiveWeaponSlotIndex);
+        Assert.Equal(precisionSlot, simulation.ActiveWeaponSlotIndex);
         Assert.Equal("longshot-rifle", simulation.Player.EffectiveRightHandWeapon.Definition.Id);
         simulation.Step([Command(simulation, PlayerButtons.SwapWeaponSet)]);
-        for (int tick = 0; tick < 21; tick++)
-        {
-            simulation.Step([]);
-        }
         Assert.Equal(0, simulation.ActiveWeaponSlotIndex);
+    }
+
+    [Fact]
+    public void SwitchingWhileMovingIsImmediateAndDoesNotResetPlayerPosition()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        WeaponQuickbarLoadout quickbar = new();
+        quickbar.Slots[0] = new WeaponPresetSlot
+        {
+            RightHand = StarterWeaponReference.Issue("pulse-sidearm"),
+        };
+        quickbar.Slots[1] = new WeaponPresetSlot
+        {
+            RightHand = StarterWeaponReference.Issue("ion-sprayer"),
+        };
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            StartingWeaponQuickbar = quickbar,
+            GodModeEnabled = true,
+        });
+        simulation.Step([]);
+        Vector3 before = simulation.Player.Position;
+
+        simulation.Step([new PlayerCommand(
+            simulation.Tick + 1,
+            simulation.Player.Id,
+            Vector2.UnitY,
+            Vector2.Zero,
+            PlayerButtons.None,
+            WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.SMG))]);
+
+        Assert.Equal(WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.SMG),
+            simulation.ActiveWeaponSlotIndex);
+        Assert.Equal("ion-sprayer", simulation.Player.EffectiveRightHandWeapon.Definition.Id);
+        Assert.NotEqual(before, simulation.Player.Position);
+        Assert.Equal(0f, simulation.Player.WeaponSwapRemainingSeconds);
+    }
+
+    [Fact]
+    public void SwitchingWeaponsPreservesReloadAmmoAndCooldownState()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        WeaponQuickbarLoadout quickbar = new();
+        quickbar.Slots[0] = new WeaponPresetSlot
+        {
+            RightHand = StarterWeaponReference.Issue("pulse-sidearm"),
+        };
+        quickbar.Slots[1] = new WeaponPresetSlot
+        {
+            RightHand = StarterWeaponReference.Issue("ion-sprayer"),
+        };
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            StartingWeaponQuickbar = quickbar,
+            GodModeEnabled = true,
+        });
+        int pulseSlot = WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.Pulse);
+        int smgSlot = WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.SMG);
+        Assert.True(simulation.BeginWeaponSetSwap(smgSlot));
+        WeaponState smg = simulation.Player.EffectiveRightHandWeapon;
+        Assert.True(smg.TryFire());
+        smg.BeginReload();
+        int magazine = smg.Magazine;
+        int reserve = smg.Reserve;
+        float cooldown = smg.FireCooldownSeconds;
+        float reloadRemaining = smg.ReloadRemainingSeconds;
+
+        Assert.True(simulation.BeginWeaponSetSwap(pulseSlot));
+
+        Assert.Equal(magazine, smg.Magazine);
+        Assert.Equal(reserve, smg.Reserve);
+        Assert.Equal(cooldown, smg.FireCooldownSeconds);
+        Assert.Equal(reloadRemaining, smg.ReloadRemainingSeconds);
+        Assert.True(smg.IsReloading);
+    }
+
+    [Fact]
+    public void WeaponDropsAutoFillEmptyFamiliesAndCompareOccupiedFamilies()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            GodModeEnabled = true,
+        });
+        simulation.Step([]);
+        int pulseSlot = WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.Pulse);
+        int smgSlot = WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.SMG);
+        int activeSlot = simulation.ActiveWeaponSlotIndex;
+
+        PickupState first = simulation.DebugSpawnWeaponDrop("ion-sprayer", ItemRarity.Rare, 24);
+        simulation.Step([]);
+
+        Assert.Equal("ion-sprayer", simulation.GetWeaponSlotState(smgSlot).RightHand?.Definition.Id);
+        Assert.Equal(first.Equipment?.Id, simulation.GetWeaponSlotEquipment(smgSlot)?.Id);
+        Assert.Equal(activeSlot, simulation.ActiveWeaponSlotIndex);
+
+        PickupState replacement = simulation.DebugSpawnWeaponDrop("vector-smg", ItemRarity.Epic, 35);
+        simulation.Step([]);
+        PendingWeaponPickupDecision decision = Assert.IsType<PendingWeaponPickupDecision>(
+            simulation.PendingWeaponPickupDecision);
+        Assert.Equal(smgSlot, decision.SlotIndex);
+        Assert.Equal(GamePhase.Paused, simulation.Phase);
+        Assert.True(simulation.ResolveWeaponPickup(WeaponPickupDecisionAction.Replace));
+
+        Assert.Equal(replacement.Equipment?.Id, simulation.GetWeaponSlotEquipment(smgSlot)?.Id);
+        Assert.Equal(activeSlot, simulation.ActiveWeaponSlotIndex);
+        Assert.Contains(simulation.PendingProgression.Equipment, item => item.Id == first.Equipment?.Id);
+        Assert.Contains(simulation.PendingProgression.Equipment, item => item.Id == replacement.Equipment?.Id);
+
+        PickupState salvage = simulation.DebugSpawnWeaponDrop("pulse-sidearm", ItemRarity.Rare, 21);
+        simulation.Step([]);
+        Assert.Equal(pulseSlot, simulation.PendingWeaponPickupDecision?.SlotIndex);
+        CraftingMaterialBundle expected = EquipmentCrafting.GetDismantleYield(salvage.Equipment!);
+        Assert.True(simulation.ResolveWeaponPickup(WeaponPickupDecisionAction.Dismantle));
+        Assert.Equal(expected, simulation.PendingProgression.DismantledMaterials);
+        Assert.DoesNotContain(simulation.Pickups, pickup => pickup.Id == salvage.Id);
+    }
+
+    [Fact]
+    public void LeavingACompetingWeaponSuppressesRetriggerUntilExplicitInteraction()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            GodModeEnabled = true,
+        });
+        simulation.Step([]);
+        PickupState pickup = simulation.DebugSpawnWeaponDrop("pulse-sidearm", ItemRarity.Epic, 30);
+        simulation.Step([]);
+        Assert.NotNull(simulation.PendingWeaponPickupDecision);
+
+        Assert.True(simulation.ResolveWeaponPickup(WeaponPickupDecisionAction.Leave));
+        simulation.Step([]);
+        Assert.Null(simulation.PendingWeaponPickupDecision);
+        Assert.Contains(simulation.Pickups, candidate => candidate.Id == pickup.Id);
+
+        simulation.Step([Command(simulation, PlayerButtons.Interact)]);
+        Assert.Equal(pickup.Id, simulation.PendingWeaponPickupDecision?.PickupId);
+    }
+
+    [Fact]
+    public void DebugWeaponSelectionReplacesItsFamilySlotWithoutResettingTheSandbox()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            GodModeEnabled = true,
+        });
+        simulation.Step([]);
+        simulation.SetDebugAiFrozen(true);
+        simulation.DebugSpawnEnemy("alien-grunt");
+        Vector3 position = simulation.Player.Position;
+        int enemyCount = simulation.Enemies.Count;
+
+        Assert.True(simulation.DebugEquipWeapon("longshot-rifle"));
+
+        Assert.Equal(position, simulation.Player.Position);
+        Assert.Equal(enemyCount, simulation.Enemies.Count);
+        Assert.Equal("longshot-rifle", simulation.Player.EffectiveRightHandWeapon.Definition.Id);
+        Assert.Equal(WeaponQuickbarLoadout.SlotForFamily(WeaponFamily.Precision),
+            simulation.ActiveWeaponSlotIndex);
     }
 
     [Theory]
@@ -305,6 +503,7 @@ public sealed class PersistentProgressionTests
             CommitId = "seed-44-encounter-1",
             Experience = 330,
             Equipment = [WeaponItem("reward-item", "pulse-sidearm")],
+            DismantledMaterials = new CraftingMaterialBundle(4, 2, 1),
         };
         pending.ProficiencyExperience[WeaponFamily.Pulse] = 100;
 
@@ -313,6 +512,9 @@ public sealed class PersistentProgressionTests
         Assert.Equal(2, progression.Level);
         Assert.Single(progression.Stash);
         Assert.Equal(100, progression.Proficiencies.Get(WeaponFamily.Pulse).Experience);
+        Assert.Equal(4, progression.Materials.Scrap);
+        Assert.Equal(2, progression.Materials.Components);
+        Assert.Equal(1, progression.Materials.Cores);
     }
 
     [Fact]
@@ -360,14 +562,35 @@ public sealed class PersistentProgressionTests
 
         Assert.True(simulation.DebugCompleteCurrentStage());
         Assert.Equal(RunPhase.RecoveryLoot, simulation.RunPhase);
-        Assert.Equal(2, simulation.RecoveryCache.Items.Count);
+        Assert.Equal(5, simulation.RecoveryCache.Items.Count);
         simulation.CompleteRecovery();
         UpgradeDefinition choice = simulation.PendingUpgradeOffers[0];
         simulation.ChooseUpgrade(choice.Id);
 
         Assert.Equal(RunPhase.EncounterActive, simulation.RunPhase);
-        Assert.Equal(2, progression.Stash.Count);
+        Assert.Equal(5, progression.Stash.Count);
         Assert.Single(progression.CommittedRewardIds);
+    }
+
+    [Fact]
+    public void FirstSectorEncounterGuaranteesDistinctMissingFamilyWeaponOpportunities()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            GodModeEnabled = true,
+        });
+
+        Assert.True(simulation.DebugCompleteCurrentStage());
+        WeaponFamily[] families = simulation.RecoveryCache.Items
+            .Where(item => item.WeaponBaseId is not null)
+            .Select(item => catalog.Weapons[item.WeaponBaseId!].Family)
+            .Distinct()
+            .ToArray();
+
+        Assert.True(families.Length >= 3);
+        Assert.DoesNotContain(WeaponFamily.None, families);
     }
 
     [Fact]
@@ -440,6 +663,28 @@ public sealed class PersistentProgressionTests
     }
 
     [Fact]
+    public void DebugSandboxEquipsAControllerAbilityPairWithFreshCooldowns()
+    {
+        ContentCatalog catalog = LoadCatalog();
+        using GameSimulation simulation = new(catalog, new RunConfiguration
+        {
+            ArenaId = "orbital-depot",
+            GodModeEnabled = true,
+        });
+
+        Assert.True(simulation.DebugEquipActiveAbilities("barrier-pulse", "repair-drone"));
+        Assert.Equal(["barrier-pulse", "repair-drone"],
+            simulation.Progression.AbilityMastery.EquippedActiveAbilityIds);
+        Assert.True(simulation.TryActivateAbility(0));
+        Assert.NotEmpty(simulation.AbilityCooldowns);
+
+        Assert.True(simulation.DebugEquipActiveAbilities("overclock", "gravity-well"));
+        Assert.Equal(["overclock", "gravity-well"],
+            simulation.Progression.AbilityMastery.EquippedActiveAbilityIds);
+        Assert.Empty(simulation.AbilityCooldowns);
+    }
+
+    [Fact]
     public void DebugArenaShowcaseSpawnsEveryReleaseEnemyAndRarity()
     {
         ContentCatalog catalog = LoadCatalog();
@@ -497,7 +742,7 @@ public sealed class PersistentProgressionTests
             GodModeEnabled = true,
         });
 
-        Assert.Equal(2, restored.RunSnapshot?.EquipmentCollected);
+        Assert.Equal(5, restored.RunSnapshot?.EquipmentCollected);
         Assert.Equal(checkpoint.RunRarityTotals, restored.RunSnapshot?.RarityTotals);
         Assert.Equal(checkpoint.RunHighestItemPower, restored.RunSnapshot?.HighestItemPower);
     }

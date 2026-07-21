@@ -58,6 +58,10 @@ public sealed class RunCheckpointStore
             {
                 checkpoint = MigrateVersionFour(checkpoint);
             }
+            else if (checkpoint?.SchemaVersion == 5)
+            {
+                checkpoint = MigrateVersionFive(checkpoint);
+            }
             return IsValid(checkpoint) ? checkpoint : null;
         }
         catch (IOException)
@@ -186,7 +190,11 @@ public sealed class RunCheckpointStore
                 !IsFiniteNonNegative(pair.Value)) || checkpoint.LootDropSerial < 0 ||
             checkpoint.PendingProgression.Equipment is null ||
             checkpoint.PendingProgression.ProficiencyExperience is null ||
-            checkpoint.PendingProgression.AbilityPoints is null || checkpoint.RecoveryCache.Items is null ||
+            checkpoint.PendingProgression.AbilityPoints is null ||
+            checkpoint.PendingProgression.DismantledMaterials.Scrap < 0 ||
+            checkpoint.PendingProgression.DismantledMaterials.Components < 0 ||
+            checkpoint.PendingProgression.DismantledMaterials.Cores < 0 ||
+            checkpoint.RecoveryCache.Items is null ||
             checkpoint.OwnedUpgradeIds.Count != checkpoint.NextEncounterIndex ||
             checkpoint.OwnedUpgradeIds.Any(string.IsNullOrWhiteSpace) ||
             checkpoint.OwnedUpgradeIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
@@ -265,6 +273,12 @@ public sealed class RunCheckpointStore
         Difficulty = FpsFrenzy.Core.Data.DifficultyCatalog.Normalize(legacy.Difficulty),
         WeaponQuickbar = WeaponQuickbarLoadout.FromLegacy(legacy.WeaponSetA, legacy.WeaponSetB),
         ActiveWeaponSlotIndex = Math.Clamp(legacy.ActiveWeaponSetIndex, 0, 1),
+    };
+
+    private static RunCheckpoint MigrateVersionFive(RunCheckpoint legacy) => legacy with
+    {
+        SchemaVersion = RunCheckpoint.CurrentSchemaVersion,
+        Difficulty = FpsFrenzy.Core.Data.DifficultyCatalog.Normalize(legacy.Difficulty),
     };
 
     private static bool IsValid(WeaponCheckpointState state) =>

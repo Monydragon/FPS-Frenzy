@@ -86,6 +86,8 @@ public sealed class FpsFrenzyGame : Game
     private readonly DebugTestController _debug = new();
     private bool _debugSandboxActive;
     private int _debugWeaponIndex;
+    private int _debugAbility1Index;
+    private int _debugAbility2Index = 1;
     private int _debugEnemyIndex;
     private int _debugSectorIndex;
     private DifficultyMode _debugDifficulty = DifficultyMode.Normal;
@@ -445,11 +447,23 @@ public sealed class FpsFrenzyGame : Game
                     _suppressGameplayInputUntilNeutral = true;
                 }
                 break;
+            case MenuAction.WeaponPickupResolved:
+                if (_menu.SelectedWeaponPickupAction is WeaponPickupDecisionAction pickupAction)
+                {
+                    _simulation.ResolveWeaponPickup(pickupAction);
+                    _input.ClearAimLatch();
+                    _suppressGameplayInputUntilNeutral = true;
+                    _audio?.PlayInterfaceCue(
+                        pickupAction == WeaponPickupDecisionAction.Dismantle ? "ui-toggle" : "ui-confirm",
+                        _settings);
+                }
+                break;
         }
         RefreshMouseCapture();
 
         KeyboardState keyboard = Keyboard.GetState();
-        DebugTestAction debugAction = _debug.Update(keyboard, _runActive);
+        GamePadState gamePad = GamePad.GetState(PlayerIndex.One);
+        DebugTestAction debugAction = _debug.Update(keyboard, gamePad, _runActive);
         HandleDebugTestAction(debugAction);
 
         if (keyboard.IsKeyDown(Keys.F10))
@@ -472,6 +486,22 @@ public sealed class FpsFrenzyGame : Game
             MathF.Min(0.68f, _simulation.Player.EffectiveRightHandWeapon.Definition.ScopedSensitivityMultiplier),
             isDualWielding,
             usesWeaponSets ? _simulation.PopulatedWeaponSlots : null);
+        if (_debug.LabVisible)
+        {
+            PlayerButtons labButtons = sampled.Buttons;
+            if (UsesControllerAbilitySlot(debugAction))
+            {
+                labButtons &= ~PlayerButtons.Interact;
+            }
+            if (UsesControllerLabNavigation(debugAction))
+            {
+                sampled = sampled with { Buttons = labButtons, WeaponSlot = -1 };
+            }
+            else if (labButtons != sampled.Buttons)
+            {
+                sampled = sampled with { Buttons = labButtons };
+            }
+        }
         // Only controls that can activate a menu need a release gate. AimDownSights may be
         // logically latched by Toggle ADS, so including it here could suppress gameplay forever.
         PlayerButtons transitionButtons = PlayerButtons.Fire | PlayerButtons.Reload | PlayerButtons.Jump;
@@ -663,7 +693,14 @@ public sealed class FpsFrenzyGame : Game
         UpdateEnemyPresentation(presentationElapsed);
         _audio?.Update(elapsedSeconds, _settings);
         _audio?.SetMusicState(GetMusicState(), _settings);
-        if (_simulation.RunPhase == RunPhase.RecoveryLoot && _menu.Page == MenuPage.None)
+        if (_simulation.PendingWeaponPickupDecision is { } weaponPickupDecision &&
+            _menu.Page == MenuPage.None)
+        {
+            _menu.OpenWeaponPickup(weaponPickupDecision);
+            _audio?.PlayInterfaceCue("ui-confirm", _settings);
+            RefreshMouseCapture();
+        }
+        else if (_simulation.RunPhase == RunPhase.RecoveryLoot && _menu.Page == MenuPage.None)
         {
             _menu.OpenRecovery(_simulation.RecoveryCache.Items);
             _audio?.PlayInterfaceCue("ui-confirm", _settings);
@@ -831,6 +868,13 @@ public sealed class FpsFrenzyGame : Game
         base.Update(gameTime);
     }
 
+    private static bool UsesControllerAbilitySlot(DebugTestAction action) =>
+        action.HasFlag(DebugTestAction.NextAbility1) || action.HasFlag(DebugTestAction.NextAbility2);
+
+    private static bool UsesControllerLabNavigation(DebugTestAction action) =>
+        action.HasFlag(DebugTestAction.PreviousWeapon) || action.HasFlag(DebugTestAction.NextWeapon) ||
+        action.HasFlag(DebugTestAction.SpawnEnemy) || action.HasFlag(DebugTestAction.ToggleAiFreeze);
+
     protected override void Draw(GameTime gameTime)
     {
         if (_characterLab is not null)
@@ -945,6 +989,10 @@ public sealed class FpsFrenzyGame : Game
                 _debug.LabVisible,
                 _debugAiFrozen,
                 _simulation.Player.EffectiveRightHandWeapon.Definition.DisplayName,
+                _debugWeaponIndex,
+                DebugWeapons().Length,
+                DebugAbilityName(_debugAbility1Index),
+                DebugAbilityName(_debugAbility2Index),
                 DifficultyCatalog.Get(_simulation.Difficulty).DisplayName,
                 (int)_simulation.ThreatTier,
                 CreateCalibrationAxesLabel(_simulation.Player.EffectiveRightHandWeapon.Definition),
@@ -1355,46 +1403,38 @@ public sealed class FpsFrenzyGame : Game
                 },
                 _ => Color.White,
             };
-            float bob = MathF.Sin((float)GameTimeSeconds(simulation) * 3f + pickup.Id.Value) * 0.12f;
-            Vector3 pickupPosition = pickup.Position.ToXna() + new Vector3(0f, bob + 0.18f, 0f);
-            float spin = ((float)GameTimeSeconds(simulation) * 0.8f) + (pickup.Id.Value * 0.35f);
-            Vector3 tint = Vector3.Lerp(Vector3.One, color.ToVector3(), 0.28f);
-            Vector3 stationPosition = new(pickup.Position.X, 0.06f, pickup.Position.Z);
-            string stationModelId = pickup.Type == PickupType.Weapon ? "pedestal" : "container";
-            if (_pickupModels.TryGetValue(stationModelId, out StaticModelPresenter? stationModel))
-            {
-                stationModel.Draw(stationPosition, pickup.Type == PickupType.Weapon ? 1.35f : 1.1f,
-                    0f, 0f, view, projection, Vector3.Lerp(Vector3.One, color.ToVector3(), 0.18f),
-                    color.ToVector3() * 0.045f);
-            }
-
-            if (_pickupModels.TryGetValue("ring", out StaticModelPresenter? ringModel))
-            {
-                ringModel.Draw(pickupPosition + new Vector3(0f, 0.46f, 0f),
-                    pickup.Type == PickupType.Weapon ? 1.12f : 0.88f,
-                    spin * 1.35f, 0f, view, projection, tint, color.ToVector3() * 0.12f);
-            }
+            Vector3 pickupPosition = new(pickup.Position.X, 0.035f, pickup.Position.Z);
+            float restingYaw = (pickup.Id.Value % 16) * (MathF.Tau / 16f);
+            float pulse = 0.08f +
+                ((MathF.Sin((float)GameTimeSeconds(simulation) * 3f + pickup.Id.Value) + 1f) * 0.025f);
+            Vector3 tint = Vector3.Lerp(Vector3.One, color.ToVector3(), 0.2f);
+            DrawGroundPickupMarker(primitives, pickupPosition, pickup.Type, color);
 
             if (pickup.Type == PickupType.Weapon && pickup.WeaponId is not null &&
                 _weaponModels.TryGetValue(pickup.WeaponId, out StaticModelPresenter? pickupWeapon))
             {
-                pickupWeapon.Draw(pickupPosition, 0.92f, spin, -0.12f, view, projection, tint, color.ToVector3() * 0.12f);
+                pickupWeapon.Draw(pickupPosition, 1.3f, restingYaw, 0f, view, projection,
+                    tint, color.ToVector3() * pulse, anchorToGround: true);
             }
             else if (pickup.Type == PickupType.Health && _pickupModels.TryGetValue("health", out StaticModelPresenter? healthModel))
             {
-                healthModel.Draw(pickupPosition, 0.72f, spin, 0f, view, projection, tint, color.ToVector3() * 0.1f);
-                primitives.DrawCube(pickupPosition + new Vector3(0f, 0.62f, 0f),
-                    new Vector3(0.12f, 0.34f, 0.08f), color, emissive: true);
-                primitives.DrawCube(pickupPosition + new Vector3(0f, 0.62f, 0f),
-                    new Vector3(0.34f, 0.12f, 0.08f), color, emissive: true);
+                healthModel.Draw(pickupPosition, 0.82f, restingYaw, 0f, view, projection,
+                    tint, color.ToVector3() * pulse, anchorToGround: true);
+                primitives.DrawCube(pickupPosition + new Vector3(0f, 0.43f, 0f),
+                    new Vector3(0.3f, 0.035f, 0.09f), color, restingYaw, emissive: true);
+                primitives.DrawCube(pickupPosition + new Vector3(0f, 0.43f, 0f),
+                    new Vector3(0.09f, 0.035f, 0.3f), color, restingYaw, emissive: true);
             }
             else if (pickup.Type == PickupType.Ammo && _pickupModels.TryGetValue("ammo", out StaticModelPresenter? ammoModel))
             {
-                ammoModel.Draw(pickupPosition, 0.76f, spin, 0f, view, projection, tint, color.ToVector3() * 0.1f);
+                ammoModel.Draw(pickupPosition, 0.86f, restingYaw, 0f, view, projection,
+                    tint, color.ToVector3() * pulse, anchorToGround: true);
                 for (int band = -1; band <= 1; band++)
                 {
-                    primitives.DrawCube(pickupPosition + new Vector3(band * 0.18f, 0.58f, 0f),
-                        new Vector3(0.08f, 0.26f, 0.08f), color, emissive: true);
+                    Vector3 roundPosition = pickupPosition + Vector3.Transform(
+                        new Vector3(band * 0.17f, 0.4f, 0f), Matrix.CreateRotationY(restingYaw));
+                    primitives.DrawCube(roundPosition, new Vector3(0.075f, 0.2f, 0.075f),
+                        color, restingYaw, emissive: true);
                 }
             }
             else if (pickup.Type == PickupType.Equipment && pickup.Equipment is EquipmentInstance equipment)
@@ -1402,24 +1442,14 @@ public sealed class FpsFrenzyGame : Game
                 if (equipment.WeaponBaseId is string equipmentWeaponId &&
                     _weaponModels.TryGetValue(equipmentWeaponId, out StaticModelPresenter? equipmentWeapon))
                 {
-                    equipmentWeapon.Draw(pickupPosition, 0.78f, spin, -0.12f,
-                        view, projection, tint, color.ToVector3() * 0.16f);
+                    equipmentWeapon.Draw(pickupPosition, 1.18f, restingYaw, 0f,
+                        view, projection, tint, color.ToVector3() * (pulse + 0.04f), anchorToGround: true);
                 }
                 else
                 {
-                    primitives.DrawCube(pickupPosition + new Vector3(0f, 0.36f, 0f),
-                        new Vector3(0.34f, 0.24f, 0.22f), color, emissive: true);
+                    DrawEquipmentPickup(primitives, pickupPosition, equipment.PrimarySlot, restingYaw, color);
                 }
-
-                primitives.DrawBeam(pickup.Position.ToXna() + new Vector3(0f, 0.1f, 0f),
-                    pickup.Position.ToXna() + new Vector3(0f, 3.8f, 0f), 0.035f, color);
             }
-
-            float beaconRadius = pickup.Type == PickupType.Weapon ? 0.72f : 0.52f;
-            primitives.DrawBeam(pickup.Position.ToXna() + new Vector3(-beaconRadius, 0.05f, 0f),
-                pickup.Position.ToXna() + new Vector3(beaconRadius, 0.05f, 0f), 0.025f, color);
-            primitives.DrawBeam(pickup.Position.ToXna() + new Vector3(0f, 0.05f, -beaconRadius),
-                pickup.Position.ToXna() + new Vector3(0f, 0.05f, beaconRadius), 0.025f, color);
         }
 
         foreach (ProjectileState projectile in simulation.Projectiles)
@@ -1445,6 +1475,86 @@ public sealed class FpsFrenzyGame : Game
         }
 
         _feedback?.Draw(primitives);
+    }
+
+    private static void DrawGroundPickupMarker(
+        PrimitiveRenderer primitives,
+        Vector3 position,
+        PickupType type,
+        Color color)
+    {
+        float halfSpan = type is PickupType.Weapon or PickupType.Equipment ? 0.72f : 0.55f;
+        float inset = halfSpan * 0.62f;
+        float y = 0.01f;
+        Vector3 northWest = position + new Vector3(-halfSpan, y, -halfSpan);
+        Vector3 northEast = position + new Vector3(halfSpan, y, -halfSpan);
+        Vector3 southWest = position + new Vector3(-halfSpan, y, halfSpan);
+        Vector3 southEast = position + new Vector3(halfSpan, y, halfSpan);
+        primitives.DrawBeam(northWest, northWest + new Vector3(inset, 0f, 0f), 0.018f, color);
+        primitives.DrawBeam(northWest, northWest + new Vector3(0f, 0f, inset), 0.018f, color);
+        primitives.DrawBeam(northEast, northEast + new Vector3(-inset, 0f, 0f), 0.018f, color);
+        primitives.DrawBeam(northEast, northEast + new Vector3(0f, 0f, inset), 0.018f, color);
+        primitives.DrawBeam(southWest, southWest + new Vector3(inset, 0f, 0f), 0.018f, color);
+        primitives.DrawBeam(southWest, southWest + new Vector3(0f, 0f, -inset), 0.018f, color);
+        primitives.DrawBeam(southEast, southEast + new Vector3(-inset, 0f, 0f), 0.018f, color);
+        primitives.DrawBeam(southEast, southEast + new Vector3(0f, 0f, -inset), 0.018f, color);
+    }
+
+    private static void DrawEquipmentPickup(
+        PrimitiveRenderer primitives,
+        Vector3 position,
+        EquipmentSlot slot,
+        float yaw,
+        Color color)
+    {
+        Color body = new(Vector3.Lerp(new Vector3(0.18f, 0.22f, 0.28f), color.ToVector3(), 0.42f));
+        Vector3 Offset(float x, float y, float z) => position + Vector3.Transform(
+            new Vector3(x, y, z), Matrix.CreateRotationY(yaw));
+
+        switch (slot)
+        {
+            case EquipmentSlot.Head:
+                primitives.DrawCube(Offset(0f, 0.17f, 0f), new Vector3(0.46f, 0.34f, 0.4f), body, yaw);
+                primitives.DrawCube(Offset(0f, 0.2f, -0.21f), new Vector3(0.32f, 0.08f, 0.035f),
+                    color, yaw, emissive: true);
+                break;
+            case EquipmentSlot.Chest:
+                primitives.DrawCube(Offset(0f, 0.125f, 0f), new Vector3(0.62f, 0.25f, 0.5f), body, yaw);
+                primitives.DrawCube(Offset(0f, 0.18f, -0.27f), new Vector3(0.28f, 0.07f, 0.035f),
+                    color, yaw, emissive: true);
+                break;
+            case EquipmentSlot.Hands:
+                primitives.DrawCube(Offset(-0.27f, 0.11f, 0f), new Vector3(0.28f, 0.22f, 0.36f), body, yaw);
+                primitives.DrawCube(Offset(0.27f, 0.11f, 0f), new Vector3(0.28f, 0.22f, 0.36f), body, yaw);
+                break;
+            case EquipmentSlot.Legs:
+                primitives.DrawCube(Offset(-0.18f, 0.14f, 0f), new Vector3(0.25f, 0.28f, 0.48f), body, yaw);
+                primitives.DrawCube(Offset(0.18f, 0.14f, 0f), new Vector3(0.25f, 0.28f, 0.48f), body, yaw);
+                break;
+            case EquipmentSlot.Feet:
+                primitives.DrawCube(Offset(-0.2f, 0.1f, -0.05f), new Vector3(0.28f, 0.2f, 0.5f), body, yaw);
+                primitives.DrawCube(Offset(0.2f, 0.1f, -0.05f), new Vector3(0.28f, 0.2f, 0.5f), body, yaw);
+                break;
+            case EquipmentSlot.Ring1:
+            case EquipmentSlot.Ring2:
+                Vector3[] ring =
+                [
+                    Offset(0f, 0.075f, -0.32f),
+                    Offset(0.32f, 0.075f, 0f),
+                    Offset(0f, 0.075f, 0.32f),
+                    Offset(-0.32f, 0.075f, 0f),
+                ];
+                for (int index = 0; index < ring.Length; index++)
+                {
+                    primitives.DrawBeam(ring[index], ring[(index + 1) % ring.Length], 0.075f, color);
+                }
+                break;
+            default:
+                primitives.DrawCube(Offset(0f, 0.16f, 0f), new Vector3(0.5f, 0.32f, 0.46f), body, yaw);
+                primitives.DrawCube(Offset(0f, 0.19f, -0.25f), new Vector3(0.22f, 0.1f, 0.04f),
+                    color, yaw, emissive: true);
+                break;
+        }
     }
 
     private void DrawMannequinHandWeapon(
@@ -1733,7 +1843,10 @@ public sealed class FpsFrenzyGame : Game
             WeaponDefinition[] weapons = DebugWeapons();
             _debugWeaponIndex = Math.Max(0, Array.FindIndex(weapons, weapon => weapon.Id.Equals(
                 _simulation.SelectedWeaponId, StringComparison.OrdinalIgnoreCase)));
-            _debugLabStatus = "LAB READY  BRACKETS WEAPON  +/- DIFFICULTY";
+            InitializeDebugAbilityIndexes();
+            _simulation.DebugGrantRpgProgression();
+            ConfigureDebugAbilityLoadout();
+            _debugLabStatus = "PAD Y/B WEAPON  LB/RB ABILITIES";
         }
 
         if (action.HasFlag(DebugTestAction.GodModeChanged))
@@ -1766,7 +1879,7 @@ public sealed class FpsFrenzyGame : Game
                 _debugWeaponIndex = (_debugWeaponIndex + direction + weapons.Length) % weapons.Length;
                 _startingWeaponId = weapons[_debugWeaponIndex].Id;
                 _debugLabStatus = $"WEAPON {weapons[_debugWeaponIndex].DisplayName.ToUpperInvariant()}";
-                restartLab = true;
+                _simulation.DebugEquipWeapon(_startingWeaponId);
             }
         }
         if (action.HasFlag(DebugTestAction.PreviousDifficulty) ||
@@ -1798,6 +1911,31 @@ public sealed class FpsFrenzyGame : Game
         if (restartLab)
         {
             RestartDebugLab();
+        }
+        if (action.HasFlag(DebugTestAction.NextAbility1) || action.HasFlag(DebugTestAction.NextAbility2))
+        {
+            EquipmentAbilityDefinition[] abilities = DebugActiveAbilities();
+            if (abilities.Length >= 2)
+            {
+                if (action.HasFlag(DebugTestAction.NextAbility1))
+                {
+                    _debugAbility1Index = NextDistinctIndex(
+                        _debugAbility1Index,
+                        _debugAbility2Index,
+                        abilities.Length);
+                }
+                if (action.HasFlag(DebugTestAction.NextAbility2))
+                {
+                    _debugAbility2Index = NextDistinctIndex(
+                        _debugAbility2Index,
+                        _debugAbility1Index,
+                        abilities.Length);
+                }
+                ConfigureDebugAbilityLoadout();
+                _debugLabStatus =
+                    $"LB {abilities[_debugAbility1Index].DisplayName.ToUpperInvariant()}  " +
+                    $"RB {abilities[_debugAbility2Index].DisplayName.ToUpperInvariant()}";
+            }
         }
         if (action.HasFlag(DebugTestAction.ToggleAiFreeze))
         {
@@ -1865,6 +2003,63 @@ public sealed class FpsFrenzyGame : Game
         .ThenBy(weapon => weapon.Id, StringComparer.OrdinalIgnoreCase)
         .ToArray() ?? [];
 
+    private EquipmentAbilityDefinition[] DebugActiveAbilities() => _catalog?.Abilities.Values
+        .Where(ability => ability.Kind == AbilityKind.Active)
+        .OrderBy(ability => ability.Id, StringComparer.OrdinalIgnoreCase)
+        .ToArray() ?? [];
+
+    private string DebugAbilityName(int index)
+    {
+        EquipmentAbilityDefinition[] abilities = DebugActiveAbilities();
+        return abilities.Length == 0
+            ? "NONE"
+            : abilities[Math.Clamp(index, 0, abilities.Length - 1)].DisplayName;
+    }
+
+    private void InitializeDebugAbilityIndexes()
+    {
+        EquipmentAbilityDefinition[] abilities = DebugActiveAbilities();
+        if (abilities.Length == 0)
+        {
+            _debugAbility1Index = 0;
+            _debugAbility2Index = 0;
+            return;
+        }
+
+        _debugAbility1Index = 0;
+        _debugAbility2Index = Math.Min(1, abilities.Length - 1);
+    }
+
+    private void ConfigureDebugAbilityLoadout()
+    {
+        EquipmentAbilityDefinition[] abilities = DebugActiveAbilities();
+        if (_simulation is null || abilities.Length < 2)
+        {
+            return;
+        }
+
+        _debugAbility1Index = Math.Clamp(_debugAbility1Index, 0, abilities.Length - 1);
+        _debugAbility2Index = Math.Clamp(_debugAbility2Index, 0, abilities.Length - 1);
+        if (_debugAbility1Index == _debugAbility2Index)
+        {
+            _debugAbility2Index = (_debugAbility1Index + 1) % abilities.Length;
+        }
+        _simulation.DebugEquipActiveAbilities(
+            abilities[_debugAbility1Index].Id,
+            abilities[_debugAbility2Index].Id);
+    }
+
+    private static int NextDistinctIndex(int current, int other, int count)
+    {
+        int next = current;
+        do
+        {
+            next = (next + 1) % count;
+        }
+        while (next == other);
+        return next;
+    }
+
     private void RestartDebugLab()
     {
         int seed = _simulation?.RunSeed ?? 1337;
@@ -1873,6 +2068,8 @@ public sealed class FpsFrenzyGame : Game
         _debugAiFrozen = true;
         _simulation?.SetPlayerInvulnerable(true);
         _simulation?.SetDebugAiFrozen(true);
+        _simulation?.DebugGrantRpgProgression();
+        ConfigureDebugAbilityLoadout();
         _simulation?.DebugPopulateArenaShowcase();
         _runActive = true;
         _menu.Close();
@@ -1892,7 +2089,8 @@ public sealed class FpsFrenzyGame : Game
         {
             _startingWeaponId = weapons[_debugWeaponIndex].Id;
         }
-        _debugLabStatus = $"SHOWCASE READY  {weapons.Length} WEAPONS  { _catalog!.Enemies.Count} ENEMIES";
+        InitializeDebugAbilityIndexes();
+        _debugLabStatus = $"SHOWCASE READY  {weapons.Length} WEAPONS  PAD Y/B TO SWITCH";
         RestartDebugLab();
     }
 
@@ -2046,11 +2244,26 @@ public sealed class FpsFrenzyGame : Game
         }
         if (_debug.LabVisible && DebugWeapons() is { Length: > 0 } debugWeapons)
         {
+            startingQuickbar = new WeaponQuickbarLoadout();
+            foreach (WeaponFamily family in WeaponQuickbarLoadout.FamilyOrder)
+            {
+                WeaponDefinition familyWeapon = debugWeapons.First(weapon => weapon.Family == family);
+                int familySlot = WeaponQuickbarLoadout.SlotForFamily(family);
+                StarterWeaponReference familyReference = StarterWeaponReference.Issue(familyWeapon.Id);
+                startingQuickbar.Slots[familySlot] = new WeaponPresetSlot
+                {
+                    RightHand = familyReference,
+                    LeftHand = familyWeapon.Handedness == Handedness.TwoHanded ? familyReference : null,
+                };
+            }
             WeaponDefinition debugWeapon = debugWeapons[Math.Clamp(
                 _debugWeaponIndex, 0, debugWeapons.Length - 1)];
-            startingQuickbar.Slots[0] = new WeaponPresetSlot
+            int debugSlot = WeaponQuickbarLoadout.SlotForFamily(debugWeapon.Family);
+            StarterWeaponReference debugReference = StarterWeaponReference.Issue(debugWeapon.Id);
+            startingQuickbar.Slots[debugSlot] = new WeaponPresetSlot
             {
-                RightHand = StarterWeaponReference.Issue(debugWeapon.Id),
+                RightHand = debugReference,
+                LeftHand = debugWeapon.Handedness == Handedness.TwoHanded ? debugReference : null,
             };
             progressionWeaponId = debugWeapon.Id;
         }

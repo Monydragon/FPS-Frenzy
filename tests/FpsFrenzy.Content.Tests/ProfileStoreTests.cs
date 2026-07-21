@@ -71,9 +71,11 @@ public sealed class ProfileStoreTests
         };
         Assert.True(store.Save(profile));
         File.WriteAllText(path, File.ReadAllText(path).Replace(
-            "\"SchemaVersion\": 4", "\"SchemaVersion\": 2", StringComparison.Ordinal));
+            $"\"SchemaVersion\": {ProfileData.CurrentSchemaVersion}", "\"SchemaVersion\": 2",
+            StringComparison.Ordinal));
         File.WriteAllText(path + ".stash", File.ReadAllText(path + ".stash").Replace(
-            "\"SchemaVersion\": 4", "\"SchemaVersion\": 2", StringComparison.Ordinal));
+            $"\"SchemaVersion\": {ProfileData.CurrentSchemaVersion}", "\"SchemaVersion\": 2",
+            StringComparison.Ordinal));
 
         ProfileData migrated = store.Load();
 
@@ -84,6 +86,27 @@ public sealed class ProfileStoreTests
         Assert.Null(migrated.StarterWeaponSetB.LeftHand);
         Assert.NotNull(migrated.StarterWeaponQuickbar[0].RightHand);
         Assert.True(migrated.StarterWeaponQuickbar[1].IsEmpty);
+    }
+
+    [Fact]
+    public void VersionFourProfileMigratesWithoutLosingOwnedItems()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "profile.json");
+        ProfileStore store = new(path);
+        ProfileData profile = ProfileData.CreateDefault();
+        Assert.True(store.Save(profile));
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            $"\"SchemaVersion\": {ProfileData.CurrentSchemaVersion}", "\"SchemaVersion\": 4",
+            StringComparison.Ordinal));
+        File.WriteAllText(path + ".stash", File.ReadAllText(path + ".stash").Replace(
+            $"\"SchemaVersion\": {ProfileData.CurrentSchemaVersion}", "\"SchemaVersion\": 4",
+            StringComparison.Ordinal));
+
+        ProfileData migrated = store.Load();
+
+        Assert.Equal(ProfileData.CurrentSchemaVersion, migrated.SchemaVersion);
+        Assert.Equal(profile.Stash.Select(item => item.Id), migrated.Stash.Select(item => item.Id));
     }
 
     [Fact]
